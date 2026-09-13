@@ -1,4 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import {
+  Card, CardContent, Typography, Box, TextField, Select, MenuItem,
+  Button, Chip, List, ListItem, Stack, Alert,
+} from '@mui/material';
 import ROSLIB from 'roslib';
 import { useRos } from '../hooks/useRos';
 
@@ -15,12 +19,11 @@ const TaskList: React.FC = () => {
   const { ros, connectionState } = useRos();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [newTaskName, setNewTaskName] = useState('');
-  const [newTaskType, setNewTaskType] = useState<'mowing' | 'plowing' | 'seeding' | 'custom'>('mowing');
+  const [newTaskType, setNewTaskType] = useState<Task['type']>('mowing');
 
   useEffect(() => {
     if (!ros || connectionState !== 'connected') return;
 
-    // Écouter le topic /tasks/list
     const tasksTopic = new ROSLIB.Topic({
       ros: ros,
       name: '/tasks/list',
@@ -53,7 +56,6 @@ const TaskList: React.FC = () => {
       status: 'pending'
     };
 
-    // Envoyer la commande au backend ROS 2
     const cmdPub = new ROSLIB.Topic({
       ros: ros,
       name: '/task/command',
@@ -61,13 +63,9 @@ const TaskList: React.FC = () => {
     });
 
     cmdPub.publish(new ROSLIB.Message({
-      data: JSON.stringify({
-        action: 'add_task',
-        task: newTask
-      })
+      data: JSON.stringify({ action: 'add_task', task: newTask })
     }));
 
-    // Ajouter localement pour un retour immédiat
     setTasks([...tasks, newTask]);
     setNewTaskName('');
   };
@@ -82,13 +80,10 @@ const TaskList: React.FC = () => {
     });
 
     cmdPub.publish(new ROSLIB.Message({
-      data: JSON.stringify({
-        action: 'start_task',
-        task_id: taskId
-      })
+      data: JSON.stringify({ action: 'start_task', task_id: taskId })
     }));
 
-    setTasks(tasks.map(task => 
+    setTasks(tasks.map(task =>
       task.id === taskId ? { ...task, status: 'running' } : task
     ));
   };
@@ -103,13 +98,10 @@ const TaskList: React.FC = () => {
     });
 
     cmdPub.publish(new ROSLIB.Message({
-      data: JSON.stringify({
-        action: 'stop_task',
-        task_id: taskId
-      })
+      data: JSON.stringify({ action: 'stop_task', task_id: taskId })
     }));
 
-    setTasks(tasks.map(task => 
+    setTasks(tasks.map(task =>
       task.id === taskId ? { ...task, status: 'pending' } : task
     ));
   };
@@ -135,76 +127,90 @@ const TaskList: React.FC = () => {
   const disabled = connectionState !== 'connected';
 
   return (
-    <div className="task-list">
-      <h2>Liste des tâches</h2>
-      
-      {disabled && (
-        <div style={{ color: '#f44336', fontSize: '0.85rem', marginBottom: '10px' }}>
-          ⚠️ ROS 2 non connecté - les tâches ne peuvent pas être envoyées
-        </div>
-      )}
-      
-      {/* Formulaire pour ajouter une tâche */}
-      <div style={{ marginBottom: '15px', padding: '10px', background: '#f5f5f5', borderRadius: '4px' }}>
-        <input
-          type="text"
-          placeholder="Nom de la tâche"
-          value={newTaskName}
-          onChange={(e) => setNewTaskName(e.target.value)}
-          disabled={disabled}
-          style={{ padding: '8px', marginRight: '10px', borderRadius: '4px', border: '1px solid #ddd' }}
-        />
-        <select
-          value={newTaskType}
-          onChange={(e) => setNewTaskType(e.target.value as any)}
-          disabled={disabled}
-          style={{ padding: '8px', marginRight: '10px', borderRadius: '4px', border: '1px solid #ddd' }}
-        >
-          <option value="mowing">Tonte</option>
-          <option value="plowing">Labour</option>
-          <option value="seeding">Semis</option>
-          <option value="custom">Personnalisée</option>
-        </select>
-        <button onClick={handleAddTask} className="btn" disabled={disabled}>
-          Ajouter
-        </button>
-      </div>
+    <Card>
+      <CardContent>
+        <Typography variant="h6" gutterBottom>Liste des tâches</Typography>
 
-      {/* Liste des tâches */}
-      <ul>
-        {tasks.length === 0 ? (
-          <li style={{ color: '#999' }}>Aucune tâche</li>
-        ) : (
-          tasks.map((task) => (
-            <li key={task.id} className={task.status}>
-              <strong>{task.name}</strong> ({task.type})
-              <span 
-                className="status-badge" 
-                style={{ 
-                  backgroundColor: getStatusColor(task.status),
-                  color: 'white',
-                  marginLeft: '10px'
+        {disabled && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            ⚠️ ROS 2 non connecté — les tâches ne peuvent pas être envoyées
+          </Alert>
+        )}
+
+        <Box sx={{ mb: 2, p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <TextField
+              size="small"
+              placeholder="Nom de la tâche"
+              value={newTaskName}
+              onChange={(e) => setNewTaskName(e.target.value)}
+              disabled={disabled}
+              sx={{ flex: 1 }}
+            />
+            <Select
+              size="small"
+              value={newTaskType}
+              onChange={(e) => setNewTaskType(e.target.value as Task['type'])}
+              disabled={disabled}
+              sx={{ minWidth: 140 }}
+            >
+              <MenuItem value="mowing">Tonte</MenuItem>
+              <MenuItem value="plowing">Labour</MenuItem>
+              <MenuItem value="seeding">Semis</MenuItem>
+              <MenuItem value="custom">Personnalisée</MenuItem>
+            </Select>
+            <Button variant="contained" onClick={handleAddTask} disabled={disabled}>
+              Ajouter
+            </Button>
+          </Stack>
+        </Box>
+
+        <List disablePadding>
+          {tasks.length === 0 ? (
+            <Typography color="text.secondary" sx={{ py: 1 }}>Aucune tâche</Typography>
+          ) : (
+            tasks.map((task) => (
+              <ListItem
+                key={task.id}
+                disableGutters
+                sx={{
+                  display: 'block',
+                  py: 1,
+                  px: 1.5,
+                  mb: 1,
+                  borderRadius: 1,
+                  bgcolor: 'background.default',
+                  borderLeft: 4,
+                  borderColor: getStatusColor(task.status),
                 }}
               >
-                {getStatusText(task.status)}
-              </span>
-              <div style={{ marginTop: '5px' }}>
-                {task.status === 'pending' && (
-                  <button onClick={() => handleStartTask(task.id)} className="btn btn-info" disabled={disabled}>
-                    Démarrer
-                  </button>
-                )}
-                {task.status === 'running' && (
-                  <button onClick={() => handleStopTask(task.id)} className="btn btn-danger" disabled={disabled}>
-                    Arrêter
-                  </button>
-                )}
-              </div>
-            </li>
-          ))
-        )}
-      </ul>
-    </div>
+                <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
+                  <Typography component="span" fontWeight={600}>{task.name}</Typography>
+                  <Typography component="span" color="text.secondary" variant="body2">({task.type})</Typography>
+                  <Chip
+                    label={getStatusText(task.status)}
+                    size="small"
+                    sx={{ bgcolor: getStatusColor(task.status), color: '#fff' }}
+                  />
+                </Stack>
+                <Box sx={{ mt: 1 }}>
+                  {task.status === 'pending' && (
+                    <Button size="small" variant="contained" color="info" onClick={() => handleStartTask(task.id)} disabled={disabled}>
+                      Démarrer
+                    </Button>
+                  )}
+                  {task.status === 'running' && (
+                    <Button size="small" variant="contained" color="error" onClick={() => handleStopTask(task.id)} disabled={disabled}>
+                      Arrêter
+                    </Button>
+                  )}
+                </Box>
+              </ListItem>
+            ))
+          )}
+        </List>
+      </CardContent>
+    </Card>
   );
 };
 
