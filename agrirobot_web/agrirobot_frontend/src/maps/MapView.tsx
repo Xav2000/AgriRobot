@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { Box } from '@mui/material';
 import L from 'leaflet';
 import ROSLIB from 'roslib';
 import { useRos } from '../hooks/useRos';
@@ -48,26 +49,26 @@ const MapView: React.FC = () => {
   }, [ros, connectionState]);
 
   return (
-    <MapContainer
-      center={defaultPosition}
-      zoom={18}
-      style={{ height: '100%', width: '100%', minHeight: '600px' }}
-    >
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-      />
-      
-      {/* Afficher la position du robot */}
-      {robotPosition && (
-        <Marker position={robotPosition}>
-          <Popup>
-            <strong>Robot Agricole</strong><br />
-            Position: {robotPosition[0].toFixed(6)}, {robotPosition[1].toFixed(6)}
-          </Popup>
-        </Marker>
-      )}
-    </MapContainer>
+    <Box sx={{ height: '100%', width: '100%', minHeight: 600 }}>
+      <MapContainer
+        center={defaultPosition}
+        zoom={18}
+        style={{ height: '100%', width: '100%' }}
+      >
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        />
+        {robotPosition && (
+          <Marker position={robotPosition}>
+            <Popup>
+              <strong>Robot Agricole</strong><br />
+              Position: {robotPosition[0].toFixed(6)}, {robotPosition[1].toFixed(6)}
+            </Popup>
+          </Marker>
+        )}
+      </MapContainer>
+    </Box>
   );
 };
 

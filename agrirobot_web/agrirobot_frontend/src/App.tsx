@@ -1,47 +1,65 @@
-import React, { useState } from 'react';
-import './App.css';
+import React from 'react';
+import { AppBar, Toolbar, Typography, Box, Stack, IconButton, Chip } from '@mui/material';
+import LightModeIcon from '@mui/icons-material/LightMode';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
 import MapView from './maps/MapView';
 import TaskList from './tasks/TaskList';
 import RobotInfo from './robot/RobotInfo';
 import { useRos } from './hooks/useRos';
+import { useColorMode } from './ColorModeContext';
 
 function App() {
   const { connectionState } = useRos();
-  const rosConnected = connectionState === 'connected';
+  const { mode, toggleColorMode } = useColorMode();
 
-  let statusColor = '#f44336';
-  let statusText = 'Déconnecté';
-  if (connectionState === 'connected') {
-    statusColor = '#4CAF50';
-    statusText = 'Connecté';
-  } else if (connectionState === 'connecting') {
-    statusColor = '#FF9800';
-    statusText = 'Connexion...';
-  }
+  const statusText =
+    connectionState === 'connected' ? 'Connecté'
+    : connectionState === 'connecting' ? 'Connexion…'
+    : 'Déconnecté';
+  const statusColor =
+    connectionState === 'connected' ? 'success'
+    : connectionState === 'connecting' ? 'warning'
+    : 'error';
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>AgriRobot - Gestion des robots agricoles</h1>
-        <div style={{ color: statusColor, fontSize: '0.9rem' }}>
-          ROS 2: {statusText}
-          {connectionState === 'error' && (
-            <span style={{ marginLeft: '10px', fontSize: '0.8rem' }}>
-              (rosbridge non lancé sur ws://localhost:9090)
-            </span>
-          )}
-        </div>
-      </header>
-      <div className="App-content">
-        <div className="map-container">
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>
+      <AppBar position="static" color="default" elevation={0} sx={{ bgcolor: 'background.paper' }}>
+        <Toolbar>
+          <Typography variant="h6" component="h1" sx={{ flexGrow: 1, fontWeight: 700 }}>
+            AgriRobot — Gestion des robots agricoles
+          </Typography>
+          <Chip label={'ROS 2 : ' + statusText} color={statusColor as any} size="small" sx={{ mr: 1 }} />
+          <IconButton onClick={toggleColorMode} color="inherit" aria-label="basculer le mode sombre">
+            {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
+          </IconButton>
+        </Toolbar>
+      </AppBar>
+      <Box sx={{
+        display: 'flex',
+        flexDirection: { xs: 'column', md: 'row' },
+        gap: 2,
+        p: 2,
+        maxWidth: 1600,
+        mx: 'auto',
+        flex: 1,
+      }}>
+        <Box sx={{
+          flex: 3,
+          minHeight: 600,
+          borderRadius: 2,
+          overflow: 'hidden',
+          border: '1px solid',
+          borderColor: 'divider',
+          boxShadow: 1,
+        }}>
           <MapView />
-        </div>
-        <div className="sidebar">
+        </Box>
+        <Stack sx={{ flex: 1, gap: 2 }}>
           <RobotInfo />
           <TaskList />
-        </div>
-      </div>
-    </div>
+        </Stack>
+      </Box>
+    </Box>
   );
 }
 
