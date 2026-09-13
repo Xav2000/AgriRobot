@@ -42,7 +42,7 @@ const MapView: React.FC<MapViewProps> = ({ onRosConnect }) => {
       onRosConnect?.(true);
     });
 
-    ros.on('error', (error) => {
+    ros.on('error', (error: Error) => {
       console.error('ROS bridge error:', error);
       onRosConnect?.(false);
     });
