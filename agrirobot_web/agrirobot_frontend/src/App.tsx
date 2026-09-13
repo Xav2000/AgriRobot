@@ -42,6 +42,7 @@ function App() {
         maxWidth: 1600,
         mx: 'auto',
         flex: 1,
+        alignItems: 'stretch',
       }}>
         {/* Sidebar à gauche — largeur fixe */}
         <Stack sx={{
@@ -55,7 +56,8 @@ function App() {
         {/* Carte — occupe tout l'espace restant */}
         <Box sx={{
           flex: 1,
-          minHeight: 600,
+          height: 'calc(100vh - 120px)',
+          minHeight: 500,
           borderRadius: 2,
           overflow: 'hidden',
           border: '1px solid',

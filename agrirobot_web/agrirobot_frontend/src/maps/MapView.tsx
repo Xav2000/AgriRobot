@@ -49,7 +49,7 @@ const MapView: React.FC = () => {
   }, [ros, connectionState]);
 
   return (
-    <Box sx={{ height: '100%', width: '100%', minHeight: 600 }}>
+    <Box sx={{ height: '100%', width: '100%' }}>
       <MapContainer
         center={defaultPosition}
         zoom={18}
