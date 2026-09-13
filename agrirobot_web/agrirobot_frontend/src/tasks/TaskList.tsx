@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ROSLIB from 'roslib';
+import { useRos } from '../hooks/useRos';
 
 interface Task {
   id: string;
@@ -11,17 +12,13 @@ interface Task {
 }
 
 const TaskList: React.FC = () => {
+  const { ros, connectionState } = useRos();
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [ros, setRos] = useState<ROSLIB.Ros | null>(null);
   const [newTaskName, setNewTaskName] = useState('');
   const [newTaskType, setNewTaskType] = useState<'mowing' | 'plowing' | 'seeding' | 'custom'>('mowing');
 
   useEffect(() => {
-    const ros = new ROSLIB.Ros({
-      url: 'ws://localhost:9090'
-    });
-
-    setRos(ros);
+    if (!ros || connectionState !== 'connected') return;
 
     // Écouter le topic /tasks/list
     const tasksTopic = new ROSLIB.Topic({
@@ -43,12 +40,11 @@ const TaskList: React.FC = () => {
 
     return () => {
       tasksTopic.unsubscribe();
-      ros.close();
     };
-  }, []);
+  }, [ros, connectionState]);
 
   const handleAddTask = () => {
-    if (!newTaskName.trim() || !ros) return;
+    if (!newTaskName.trim() || !ros || connectionState !== 'connected') return;
 
     const newTask: Task = {
       id: Date.now().toString(),
@@ -77,7 +73,7 @@ const TaskList: React.FC = () => {
   };
 
   const handleStartTask = (taskId: string) => {
-    if (!ros) return;
+    if (!ros || connectionState !== 'connected') return;
 
     const cmdPub = new ROSLIB.Topic({
       ros: ros,
@@ -92,14 +88,13 @@ const TaskList: React.FC = () => {
       })
     }));
 
-    // Mettre à jour localement
     setTasks(tasks.map(task => 
       task.id === taskId ? { ...task, status: 'running' } : task
     ));
   };
 
   const handleStopTask = (taskId: string) => {
-    if (!ros) return;
+    if (!ros || connectionState !== 'connected') return;
 
     const cmdPub = new ROSLIB.Topic({
       ros: ros,
@@ -114,7 +109,6 @@ const TaskList: React.FC = () => {
       })
     }));
 
-    // Mettre à jour localement
     setTasks(tasks.map(task => 
       task.id === taskId ? { ...task, status: 'pending' } : task
     ));
@@ -138,9 +132,17 @@ const TaskList: React.FC = () => {
     }
   };
 
+  const disabled = connectionState !== 'connected';
+
   return (
     <div className="task-list">
       <h2>Liste des tâches</h2>
+      
+      {disabled && (
+        <div style={{ color: '#f44336', fontSize: '0.85rem', marginBottom: '10px' }}>
+          ⚠️ ROS 2 non connecté - les tâches ne peuvent pas être envoyées
+        </div>
+      )}
       
       {/* Formulaire pour ajouter une tâche */}
       <div style={{ marginBottom: '15px', padding: '10px', background: '#f5f5f5', borderRadius: '4px' }}>
@@ -149,11 +151,13 @@ const TaskList: React.FC = () => {
           placeholder="Nom de la tâche"
           value={newTaskName}
           onChange={(e) => setNewTaskName(e.target.value)}
+          disabled={disabled}
           style={{ padding: '8px', marginRight: '10px', borderRadius: '4px', border: '1px solid #ddd' }}
         />
         <select
           value={newTaskType}
           onChange={(e) => setNewTaskType(e.target.value as any)}
+          disabled={disabled}
           style={{ padding: '8px', marginRight: '10px', borderRadius: '4px', border: '1px solid #ddd' }}
         >
           <option value="mowing">Tonte</option>
@@ -161,7 +165,7 @@ const TaskList: React.FC = () => {
           <option value="seeding">Semis</option>
           <option value="custom">Personnalisée</option>
         </select>
-        <button onClick={handleAddTask} className="btn">
+        <button onClick={handleAddTask} className="btn" disabled={disabled}>
           Ajouter
         </button>
       </div>
@@ -173,7 +177,7 @@ const TaskList: React.FC = () => {
         ) : (
           tasks.map((task) => (
             <li key={task.id} className={task.status}>
-              <strong>{task.name}</strong> ({getStatusText(task.type)})
+              <strong>{task.name}</strong> ({task.type})
               <span 
                 className="status-badge" 
                 style={{ 
@@ -186,12 +190,12 @@ const TaskList: React.FC = () => {
               </span>
               <div style={{ marginTop: '5px' }}>
                 {task.status === 'pending' && (
-                  <button onClick={() => handleStartTask(task.id)} className="btn btn-info">
+                  <button onClick={() => handleStartTask(task.id)} className="btn btn-info" disabled={disabled}>
                     Démarrer
                   </button>
                 )}
                 {task.status === 'running' && (
-                  <button onClick={() => handleStopTask(task.id)} className="btn btn-danger">
+                  <button onClick={() => handleStopTask(task.id)} className="btn btn-danger" disabled={disabled}>
                     Arrêter
                   </button>
                 )}
