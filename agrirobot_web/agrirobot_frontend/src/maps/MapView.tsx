@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import React, { useEffect, useState, useRef } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { Box } from '@mui/material';
 import L from 'leaflet';
 import ROSLIB from 'roslib';
@@ -18,6 +18,19 @@ const defaultIcon = L.icon({
 });
 
 L.Marker.prototype.options.icon = defaultIcon;
+
+// Composant utilitaire : force Leaflet à recalculer sa taille après montage
+const ResizeFix: React.FC = () => {
+  const map = useMap();
+  useEffect(() => {
+    // Plusieurs appels échelonnés car le conteneur flex peut tarder à avoir sa taille finale
+    const t1 = setTimeout(() => map.invalidateSize(), 100);
+    const t2 = setTimeout(() => map.invalidateSize(), 500);
+    const t3 = setTimeout(() => map.invalidateSize(), 1000);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, [map]);
+  return null;
+};
 
 const MapView: React.FC = () => {
   const { ros, connectionState } = useRos();
@@ -55,6 +68,7 @@ const MapView: React.FC = () => {
         zoom={18}
         style={{ height: '100%', width: '100%' }}
       >
+        <ResizeFix />
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
