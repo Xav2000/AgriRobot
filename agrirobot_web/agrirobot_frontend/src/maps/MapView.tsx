@@ -1,6 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-import { Box } from '@mui/material';
 import L from 'leaflet';
 import ROSLIB from 'roslib';
 import { useRos } from '../hooks/useRos';
@@ -19,14 +18,13 @@ const defaultIcon = L.icon({
 
 L.Marker.prototype.options.icon = defaultIcon;
 
-// Composant utilitaire : force Leaflet à recalculer sa taille après montage
+// Force Leaflet à recalculer sa taille après montage
 const ResizeFix: React.FC = () => {
   const map = useMap();
   useEffect(() => {
-    // Plusieurs appels échelonnés car le conteneur flex peut tarder à avoir sa taille finale
-    const t1 = setTimeout(() => map.invalidateSize(), 100);
-    const t2 = setTimeout(() => map.invalidateSize(), 500);
-    const t3 = setTimeout(() => map.invalidateSize(), 1000);
+    const t1 = setTimeout(() => map.invalidateSize(), 50);
+    const t2 = setTimeout(() => map.invalidateSize(), 200);
+    const t3 = setTimeout(() => map.invalidateSize(), 500);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [map]);
   return null;
@@ -36,13 +34,11 @@ const MapView: React.FC = () => {
   const { ros, connectionState } = useRos();
   const [robotPosition, setRobotPosition] = useState<[number, number] | null>(null);
 
-  // Coordonnées par défaut (à remplacer par tes données)
   const defaultPosition: [number, number] = [48.8566, 2.3522]; // Paris
 
   useEffect(() => {
     if (!ros || connectionState !== 'connected') return;
 
-    // Écouter le topic /robot/position
     const positionTopic = new ROSLIB.Topic({
       ros: ros,
       name: '/robot/position',
@@ -59,30 +55,28 @@ const MapView: React.FC = () => {
     return () => {
       positionTopic.unsubscribe();
     };
-  }, [ros, connectionState]);
+  }, [ros, connectionState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <Box sx={{ height: '100%', width: '100%' }}>
-      <MapContainer
-        center={defaultPosition}
-        zoom={18}
-        style={{ height: '100%', width: '100%' }}
-      >
-        <ResizeFix />
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        />
-        {robotPosition && (
-          <Marker position={robotPosition}>
-            <Popup>
-              <strong>Robot Agricole</strong><br />
-              Position: {robotPosition[0].toFixed(6)}, {robotPosition[1].toFixed(6)}
-            </Popup>
-          </Marker>
-        )}
-      </MapContainer>
-    </Box>
+    <MapContainer
+      center={defaultPosition}
+      zoom={18}
+      style={{ position: 'absolute', inset: 0 }}
+    >
+      <ResizeFix />
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      />
+      {robotPosition && (
+        <Marker position={robotPosition}>
+          <Popup>
+            <strong>Robot Agricole</strong><br />
+            Position: {robotPosition[0].toFixed(6)}, {robotPosition[1].toFixed(6)}
+          </Popup>
+        </Marker>
+      )}
+    </MapContainer>
   );
 };
 

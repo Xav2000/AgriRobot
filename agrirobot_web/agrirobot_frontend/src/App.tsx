@@ -22,7 +22,7 @@ function App() {
     : 'error';
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: 'background.default' }}>
       <AppBar position="static" color="default" elevation={0} sx={{ bgcolor: 'background.paper' }}>
         <Toolbar>
           <Typography variant="h6" component="h1" sx={{ flexGrow: 1, fontWeight: 700 }}>
@@ -39,16 +39,16 @@ function App() {
         flexDirection: { xs: 'column', md: 'row' },
         gap: 2,
         p: 2,
-        maxWidth: 1600,
-        mx: 'auto',
         flex: 1,
-        alignItems: 'stretch',
+        minHeight: 0,
+        overflow: 'hidden',
       }}>
         {/* Sidebar à gauche — largeur fixe */}
         <Stack sx={{
           width: { xs: '100%', md: 340 },
           flexShrink: 0,
           gap: 2,
+          overflow: 'auto',
         }}>
           <RobotInfo />
           <TaskList />
@@ -56,8 +56,8 @@ function App() {
         {/* Carte — occupe tout l'espace restant */}
         <Box sx={{
           flex: 1,
-          height: 'calc(100vh - 120px)',
-          minHeight: 500,
+          position: 'relative',
+          minHeight: 0,
           borderRadius: 2,
           overflow: 'hidden',
           border: '1px solid',
