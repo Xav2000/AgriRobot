@@ -43,8 +43,18 @@ function App() {
         mx: 'auto',
         flex: 1,
       }}>
+        {/* Sidebar à gauche — largeur fixe */}
+        <Stack sx={{
+          width: { xs: '100%', md: 340 },
+          flexShrink: 0,
+          gap: 2,
+        }}>
+          <RobotInfo />
+          <TaskList />
+        </Stack>
+        {/* Carte — occupe tout l'espace restant */}
         <Box sx={{
-          flex: 3,
+          flex: 1,
           minHeight: 600,
           borderRadius: 2,
           overflow: 'hidden',
@@ -54,10 +64,6 @@ function App() {
         }}>
           <MapView />
         </Box>
-        <Stack sx={{ flex: 1, gap: 2 }}>
-          <RobotInfo />
-          <TaskList />
-        </Stack>
       </Box>
     </Box>
   );
