@@ -1,5 +1,5 @@
 import { Polygon, Workline, Point } from '../types/mapTypes';
-import { distanceBetweenPoints, getPolygonCenter, getPolygonBounds, getPolygonMaxRadius } from './geometry';
+import { getPolygonCenter, getPolygonBounds, getPolygonMaxRadius } from './geometry';
 
 /**
  * Clip une ligne avec un polygone (simplifié - à améliorer avec Turf.js)
