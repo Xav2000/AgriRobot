@@ -3,7 +3,7 @@ import { useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet-draw';
 import 'leaflet-draw/dist/leaflet.draw.css';
-import { Polygon, Point, MapData } from '../../types/mapTypes';
+import { Polygon, MapData } from '../../types/mapTypes';
 
 // Déclaration de type pour leaflet-draw
 declare module 'leaflet' {
@@ -33,7 +33,7 @@ export const ZoneEditor: React.FC<ZoneEditorProps> = ({ mapData, setMapData }) =
     map.addLayer(drawnItems);
 
     // @ts-ignore - leaflet-draw types
-    const drawControl = new L.Control.Draw({
+    const drawControl = new (L.Control as any).Draw({
       edit: { featureGroup: drawnItems },
       draw: {
         polygon: true,
