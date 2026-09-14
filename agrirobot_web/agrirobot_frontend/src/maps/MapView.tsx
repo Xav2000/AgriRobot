@@ -4,7 +4,7 @@ import L from 'leaflet';
 import { ZoneEditor } from '../components/maps/ZoneEditor';
 import { WorklineGenerator } from '../components/maps/WorklineGenerator';
 import { PathPlanner } from '../components/maps/PathPlanner';
-import { MapData, Polygon as PolygonType } from '../types/mapTypes';
+import { MapData, Polygon as PolygonType, Workline, Path } from '../types/mapTypes';
 
 const defaultIcon = L.icon({
   iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
@@ -19,19 +19,6 @@ L.Marker.prototype.options.icon = defaultIcon;
 
 const initialMapData: MapData = { zones: [], worklines: [], paths: [] };
 
-function isPointInPolygon(point: { lat: number; lng: number }, polygon: PolygonType): boolean {
-  let inside = false;
-  const { lat, lng } = point;
-  const points = polygon.points;
-  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-    const xi = points[i].lng, yi = points[i].lat;
-    const xj = points[j].lng, yj = points[j].lat;
-    const intersect = ((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-
 export const MapView: React.FC = () => {
   const [mapData, setMapData] = useState<MapData>(initialMapData);
   const [selectedZone, setSelectedZone] = useState<PolygonType | null>(null);
@@ -42,7 +29,6 @@ export const MapView: React.FC = () => {
       <MapContainer center={center} zoom={15} style={{ width: '100%', height: '100%' }}>
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' />
         
-        {/* Afficher les zones */}
         {mapData.zones.map((zone) => (
           <LeafletPolygon 
             key={zone.id} 
@@ -56,8 +42,7 @@ export const MapView: React.FC = () => {
           />
         ))}
         
-        {/* Afficher les lignes de travail */}
-        {mapData.worklines.map((workline) => (
+        {mapData.worklines.map((workline: Workline) => (
           <Polyline 
             key={workline.id} 
             positions={workline.points.map(p => [p.lat, p.lng])} 
@@ -66,8 +51,7 @@ export const MapView: React.FC = () => {
           />
         ))}
         
-        {/* Afficher les trajets */}
-        {mapData.paths.map((path) => (
+        {mapData.paths.map((path: Path) => (
           <Polyline 
             key={path.id} 
             positions={path.points.map(p => [p.lat, p.lng])} 
@@ -77,11 +61,9 @@ export const MapView: React.FC = () => {
           />
         ))}
         
-        {/* Éditeur de zones */}
         <ZoneEditor mapData={mapData} setMapData={setMapData} />
       </MapContainer>
       
-      {/* Panneau de contrôle */}
       <div style={{
         position: 'absolute',
         top: '20px',
