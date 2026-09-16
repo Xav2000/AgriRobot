@@ -7,7 +7,13 @@ import { useUiMode } from '../context/UiModeContext';
 
 const PICK_COLOR = '#1976D2';
 const ENTRY_COLOR = '#0D47A1';
-const REFERENCE_COLOR = '#4CAF50';
+/**
+ * Jaune vif, absent de la palette des zones de tonte (vert, bleu, orange,
+ * violet, cyan) et du rouge d'exclusion : la bordure de référence choisie
+ * ne peut jamais se confondre avec le contour du polygone. Un liseré
+ * blanc plus large la détache en plus du fond.
+ */
+const REFERENCE_COLOR = '#FFD600';
 
 /** Marqueur du point d'entrée (glissable). */
 const entryIcon = L.divIcon({
@@ -24,6 +30,7 @@ const entryIcon = L.divIcon({
  * - point d'entrée : placé au clic sur la carte, glissable ensuite
  * - bordure de référence : pendant la sélection, les arêtes de la zone
  *   cible sont épaisses et cliquables ; l'arête choisie reste surlignée
+ *   en jaune avec liseré blanc
  * Aucune ligne n'est générée ici (algorithme en 6.3).
  */
 export const WorklinesLayer: React.FC = () => {
@@ -65,6 +72,9 @@ export const WorklinesLayer: React.FC = () => {
     }
   }
 
+  const referenceEdge =
+    params.referenceBorderIndex != null ? edges[params.referenceBorderIndex] : undefined;
+
   return (
     <>
       {/* Arêtes sélectionnables pendant le choix de la bordure de référence */}
@@ -85,16 +95,21 @@ export const WorklinesLayer: React.FC = () => {
           </Polyline>
         ))}
 
-      {/* Bordure de référence choisie */}
-      {params.referenceBorderIndex != null &&
-        edges[params.referenceBorderIndex] != null && (
+      {/* Bordure de référence choisie : liseré blanc + trait jaune vif */}
+      {referenceEdge != null && (
+        <>
           <Polyline
-            positions={edges[params.referenceBorderIndex]}
+            positions={referenceEdge}
+            pathOptions={{ color: '#ffffff', weight: 9, opacity: 0.9 }}
+          />
+          <Polyline
+            positions={referenceEdge}
             pathOptions={{ color: REFERENCE_COLOR, weight: 5 }}
           >
             <Tooltip sticky>Bordure de référence</Tooltip>
           </Polyline>
-        )}
+        </>
+      )}
 
       {/* Point d'entrée */}
       {params.entryPoint && (
