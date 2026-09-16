@@ -46,11 +46,26 @@ function App() {
     <UiModeProvider>
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: 'background.default' }}>
         <AppBar position="static" color="default" elevation={0} sx={{ bgcolor: 'background.paper' }}>
-          <Toolbar>
+          <Toolbar sx={{ position: 'relative' }}>
             <Typography variant="h6" component="h1" sx={{ flexGrow: 1, fontWeight: 700 }}>
               AgriRobot — Gestion des robots agricoles
             </Typography>
-            <Chip label={'ROS 2 : ' + statusText} color={statusColor as any} size="small" sx={{ mr: 1 }} />
+            {/*
+              Pilule d'état du robot, dans la barre du haut, alignée sur le bord
+              gauche de la carte : padding page 16 + sidebar 340 + gap 16 = 372px.
+            */}
+            <Box sx={{
+              position: { xs: 'static', md: 'absolute' },
+              left: { md: 372 },
+              top: { md: 0 },
+              bottom: { md: 0 },
+              display: 'flex',
+              alignItems: 'center',
+              minWidth: 0,
+            }}>
+              <RobotStatusBar />
+            </Box>
+            <Chip label={'ROS 2 : ' + statusText} color={statusColor as any} size="small" sx={{ mr: 1, flexShrink: 0 }} />
             <IconButton onClick={toggleColorMode} color="inherit" aria-label="basculer le mode sombre">
               {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
             </IconButton>
@@ -74,28 +89,18 @@ function App() {
           }}>
             <SidebarSwitcher />
           </Stack>
-          {/* Colonne carte : barre d'état du robot au-dessus, alignée à gauche avec la carte */}
+          {/* Carte — occupe tout l'espace restant, jamais démontée */}
           <Box sx={{
             flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 1,
+            position: 'relative',
             minHeight: 0,
+            borderRadius: 2,
+            overflow: 'hidden',
+            border: '1px solid',
+            borderColor: 'divider',
+            boxShadow: 1,
           }}>
-            <RobotStatusBar />
-            {/* Carte — occupe tout l'espace restant, jamais démontée */}
-            <Box sx={{
-              flex: 1,
-              position: 'relative',
-              minHeight: 0,
-              borderRadius: 2,
-              overflow: 'hidden',
-              border: '1px solid',
-              borderColor: 'divider',
-              boxShadow: 1,
-            }}>
-              <MapView />
-            </Box>
+            <MapView />
           </Box>
         </Box>
       </Box>
