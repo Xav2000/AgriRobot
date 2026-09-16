@@ -3,6 +3,7 @@ import { AppBar, Toolbar, Typography, Box, Stack, IconButton, Chip } from '@mui/
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import MapView from './maps/MapView';
+import { RobotStatusBar } from './dashboard/RobotStatusBar';
 import DashboardSidebar from './sidebars/DashboardSidebar';
 import PlanningSidebar from './sidebars/PlanningSidebar';
 import ZonesSidebar from './sidebars/ZonesSidebar';
@@ -85,6 +86,8 @@ function App() {
             boxShadow: 1,
           }}>
             <MapView />
+            {/* Barre flottante : état du robot + actions rapides */}
+            <RobotStatusBar />
           </Box>
         </Box>
       </Box>

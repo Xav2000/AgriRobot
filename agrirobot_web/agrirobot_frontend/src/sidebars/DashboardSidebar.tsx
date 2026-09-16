@@ -6,15 +6,14 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
 import ROSLIB from 'roslib';
 
-import RobotInfo from '../robot/RobotInfo';
 import { CurrentTaskCard } from '../dashboard/CurrentTaskCard';
 import { useTasks } from '../hooks/useTasks';
 import { useRos } from '../hooks/useRos';
 import { useUiMode } from '../context/UiModeContext';
 
 /**
- * Sidebar du mode Dashboard :
- * - État du robot (batterie, statut, position)
+ * Sidebar du mode Dashboard (l'état du robot est désormais dans la
+ * RobotStatusBar flottante en haut de la carte) :
  * - Tâche en cours avec progression
  * - Boutons de contrôle (Démarrer / Arrêter)
  * - Bouton "Planifier" visible UNIQUEMENT si le robot est inactif
@@ -42,9 +41,6 @@ const DashboardSidebar: React.FC = () => {
 
   return (
     <>
-      {/* État du robot (batterie, statut, position + actions station) */}
-      <RobotInfo />
-
       {/* Tâche en cours avec progression */}
       <CurrentTaskCard />
 
