@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Polygon, Polyline, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { useZones } from '../context/ZonesContext';
+import { useUiMode } from '../context/UiModeContext';
 
 /** Pastille de sommet (glissable). */
 const vertexIcon = (color: string) =>
@@ -14,13 +15,19 @@ const vertexIcon = (color: string) =>
     iconAnchor: [7, 7],
   });
 
-/** Clic sur la carte : ajoute un sommet à la zone sélectionnée (mode dessin). */
+/**
+ * Clic sur la carte : ajoute un sommet à la zone sélectionnée, uniquement
+ * en mode zones avec édition active. Pendant l'édition, les clics sur les
+ * polygones existants traversent (aucune sélection détournée) — on peut
+ * ainsi dessiner une exclusion à l'intérieur d'une zone de tonte.
+ */
 const MapClickHandler: React.FC = () => {
-  const { drawMode, selectedZoneId, appendPoint } = useZones();
+  const { mode } = useUiMode();
+  const { editMode, selectedZoneId, appendPoint } = useZones();
 
   useMapEvents({
     click(e) {
-      if (drawMode && selectedZoneId) {
+      if (mode === 'zones' && editMode && selectedZoneId) {
         appendPoint([e.latlng.lat, e.latlng.lng]);
       }
     },
@@ -32,23 +39,27 @@ const MapClickHandler: React.FC = () => {
 /**
  * Couche Leaflet des zones (polygones) :
  * - zones de tonte (palette) et zones d'exclusion (rouge, pointillées)
- * - cliquables pour sélection
- * - sommets éditables sur la zone sélectionnée : glisser pour déplacer,
- *   clic droit pour supprimer
- * - curseur croix en mode dessin
+ * - clic sur un polygone (hors édition) : sélection + édition activée
+ *   (seul point d'entrée d'édition pour les exclusions, non listées)
+ * - poignées de sommets sur la zone sélectionnée, uniquement en mode zones
+ *   avec édition active : glisser pour déplacer, clic droit pour supprimer
+ * - curseur croix pendant l'édition
  */
 export const ZonesLayer: React.FC = () => {
-  const { zones, selectedZoneId, selectZone, drawMode, updateVertex, removeVertex } = useZones();
+  const { mode } = useUiMode();
+  const { zones, selectedZoneId, selectZone, editMode, setEditMode, updateVertex, removeVertex } = useZones();
   const map = useMap();
 
-  // Curseur croix en mode dessin
+  const editing = mode === 'zones' && editMode && selectedZoneId !== null;
+
+  // Curseur croix pendant l'édition
   useEffect(() => {
     const container = map.getContainer();
-    container.style.cursor = drawMode && selectedZoneId ? 'crosshair' : '';
+    container.style.cursor = editing ? 'crosshair' : '';
     return () => {
       container.style.cursor = '';
     };
-  }, [drawMode, selectedZoneId, map]);
+  }, [editing, map]);
 
   return (
     <>
@@ -69,7 +80,19 @@ export const ZonesLayer: React.FC = () => {
                   weight: selected ? 3 : 2,
                   dashArray: selected ? undefined : '4 6',
                 }}
-                eventHandlers={{ click: () => selectZone(zone.id) }}
+                eventHandlers={
+                  mode === 'zones' && !editMode
+                    ? {
+                        // Hors édition : le clic sélectionne la zone et
+                        // démarre son édition. Pendant l'édition, aucun
+                        // handler : le clic traverse vers la carte.
+                        click: () => {
+                          selectZone(zone.id);
+                          setEditMode(true);
+                        },
+                      }
+                    : undefined
+                }
               >
                 <Tooltip sticky>
                   {zone.name}
@@ -86,8 +109,8 @@ export const ZonesLayer: React.FC = () => {
               />
             )}
 
-            {/* Sommets éditables de la zone sélectionnée */}
-            {selected &&
+            {/* Poignées de sommets : zone sélectionnée, mode zones, édition active */}
+            {selected && editing &&
               zone.points.map((pt, i) => (
                 <Marker
                   key={zone.id + '-' + i}

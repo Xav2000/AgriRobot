@@ -18,8 +18,16 @@ const EXCLUSION_COLOR = '#f44336';
 interface ZonesContextValue {
   zones: Zone[];
   selectedZoneId: string | null;
-  drawMode: boolean;
-  setDrawMode: (v: boolean) => void;
+  /**
+   * Édition des polygones : poignées visibles sur la zone sélectionnée et
+   * clic carte = ajout d'un sommet. Inactive par défaut (carte propre) ;
+   * activée automatiquement à la création d'une zone, via la liste ou en
+   * cliquant un polygone quand l'édition est off. Pendant l'édition, les
+   * clics sur les autres polygones traversent (pas de détournement de la
+   * sélection) — indispensable pour dessiner une exclusion dans une zone.
+   */
+  editMode: boolean;
+  setEditMode: (v: boolean) => void;
   selectZone: (id: string | null) => void;
   addZone: (type?: ZoneType) => void;
   renameZone: (id: string, name: string) => void;
@@ -35,15 +43,16 @@ const ZonesContext = createContext<ZonesContextValue | null>(null);
 /**
  * État des zones (polygones), partagé entre la sidebar Zones, la couche
  * carte et la toolbar d'édition. Deux types :
- * - 'mow' : zone de tonte/travail (palette de couleurs)
- * - 'exclusion' : obstacle / non-tonte (rouge) — les lignes de guidage
- *   générées ne devront jamais la traverser.
+ * - 'mow' : zone de tonte/travail (palette, listée dans la sidebar)
+ * - 'exclusion' : obstacle / non-tonte (rouge, NON listée dans la sidebar —
+ *   édition par clic sur la carte) — les lignes de guidage générées ne
+ *   devront jamais la traverser.
  * Persistance (JSON hors navigateur) à venir.
  */
 export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [zones, setZones] = useState<Zone[]>([]);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
-  const [drawMode, setDrawMode] = useState(false);
+  const [editMode, setEditMode] = useState(false);
 
   const addZone = useCallback((type: ZoneType = 'mow') => {
     const mowCount = zones.filter(z => z.type === 'mow').length;
@@ -59,7 +68,8 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
     setZones(prev => [...prev, zone]);
     setSelectedZoneId(zone.id);
-    setDrawMode(true);
+    // La création démarre directement l'édition de la nouvelle zone.
+    setEditMode(true);
   }, [zones]);
 
   const selectZone = useCallback((id: string | null) => {
@@ -114,8 +124,8 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const value: ZonesContextValue = {
     zones,
     selectedZoneId,
-    drawMode,
-    setDrawMode,
+    editMode,
+    setEditMode,
     selectZone,
     addZone,
     renameZone,
