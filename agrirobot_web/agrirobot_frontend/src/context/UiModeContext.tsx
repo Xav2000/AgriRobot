@@ -3,8 +3,9 @@ import React, { createContext, useCallback, useContext, useRef, useState } from 
 /**
  * Modes de l'interface. Le layout reste identique (AppBar + sidebar + carte),
  * seul le contenu de la sidebar gauche change selon le mode actif.
+ * 'worklines' : paramètres de génération des lignes de guidage (étape 6.2).
  */
-export type UiMode = 'dashboard' | 'planning' | 'zones';
+export type UiMode = 'dashboard' | 'planning' | 'zones' | 'worklines';
 
 interface UiModeContextValue {
   mode: UiMode;

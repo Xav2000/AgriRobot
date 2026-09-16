@@ -1,0 +1,193 @@
+import React from 'react';
+import {
+  Card, CardContent, Typography, Button, Alert, Stack, TextField, Select,
+  MenuItem, InputLabel, FormControl, Switch, FormControlLabel, Divider,
+} from '@mui/material';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import MyLocationIcon from '@mui/icons-material/MyLocation';
+import BorderStyleIcon from '@mui/icons-material/BorderStyle';
+import { useUiMode } from '../context/UiModeContext';
+import { useZones } from '../context/ZonesContext';
+import { useWorklines } from '../context/WorklinesContext';
+
+/**
+ * Sidebar du mode lignes de guidage (étape 6.2) : saisie des paramètres de
+ * génération — zone cible, point d'entrée, bordure de référence, contours
+ * intérieurs (headlands), largeur de travail, contour des obstacles.
+ * Le point d'entrée et la bordure se choisissent par interaction carte.
+ * Aucune génération ici : l'algorithme arrive à l'étape 6.3.
+ */
+const WorklinesSidebar: React.FC = () => {
+  const { goBack } = useUiMode();
+  const { zones } = useZones();
+  const { params, pickMode, setPickMode, setParams } = useWorklines();
+
+  const mowZones = zones.filter(z => z.type === 'mow' && z.points.length >= 3);
+  const targetZone = zones.find(z => z.id === params.targetZoneId) ?? null;
+
+  // Champs numériques édités comme chaînes (autorise la saisie intermédiaire),
+  // la valeur est commitée dans le contexte à chaque changement valide.
+  const [headlandsInput, setHeadlandsInput] = React.useState('0');
+  const [widthInput, setWidthInput] = React.useState('0.5');
+
+  const commitHeadlands = (v: string) => {
+    setHeadlandsInput(v);
+    const n = parseInt(v, 10);
+    if (!Number.isNaN(n) && n >= 0) setParams({ headlands: n });
+  };
+
+  const commitWidth = (v: string) => {
+    setWidthInput(v);
+    const n = parseFloat(v);
+    if (!Number.isNaN(n) && n > 0) setParams({ workingWidthM: n });
+  };
+
+  return (
+    <Card>
+      <CardContent>
+        <Button startIcon={<ArrowBackIcon />} onClick={goBack} sx={{ mb: 2 }}>
+          Retour
+        </Button>
+
+        <Typography variant="h6" gutterBottom>Lignes de guidage</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Paramètres de génération pour la zone cible. Le calcul des lignes
+          arrive à l'étape suivante.
+        </Typography>
+
+        {/* Zone de tonte cible */}
+        <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+          <InputLabel id="worklines-target-zone-label">Zone de tonte cible</InputLabel>
+          <Select
+            labelId="worklines-target-zone-label"
+            label="Zone de tonte cible"
+            value={params.targetZoneId ?? ''}
+            onChange={e => setParams({ targetZoneId: e.target.value || null })}
+          >
+            {mowZones.length === 0 && (
+              <MenuItem value="" disabled>Aucune zone de tonte</MenuItem>
+            )}
+            {mowZones.map(z => (
+              <MenuItem key={z.id} value={z.id}>{z.name}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        {/* Point d'entrée */}
+        <Typography variant="subtitle2" gutterBottom>Point d'entrée</Typography>
+        {params.entryPoint ? (
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+            <MyLocationIcon fontSize="small" color="action" />
+            <Typography variant="body2" sx={{ flex: 1, fontFamily: 'monospace' }}>
+              {params.entryPoint[0].toFixed(6)}, {params.entryPoint[1].toFixed(6)}
+            </Typography>
+            <Button size="small" onClick={() => setPickMode('entryPoint')}>
+              Replacer
+            </Button>
+          </Stack>
+        ) : (
+          <Button
+            variant="outlined"
+            startIcon={<MyLocationIcon />}
+            disabled={!targetZone}
+            onClick={() => setPickMode('entryPoint')}
+            fullWidth
+            sx={{ mb: 1 }}
+          >
+            Placer le point d'entrée
+          </Button>
+        )}
+        {pickMode === 'entryPoint' && (
+          <Alert severity="info" sx={{ mb: 1 }}>
+            Clique sur la carte pour placer le point de départ du robot.
+          </Alert>
+        )}
+
+        <Divider sx={{ my: 2 }} />
+
+        {/* Bordure de référence */}
+        <Typography variant="subtitle2" gutterBottom>Bordure de référence</Typography>
+        {params.referenceBorderIndex != null && targetZone ? (
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+            <BorderStyleIcon fontSize="small" color="action" />
+            <Typography variant="body2" sx={{ flex: 1 }}>
+              Bordure n°{params.referenceBorderIndex + 1}
+            </Typography>
+            <Button size="small" onClick={() => setPickMode('referenceBorder')}>
+              Changer
+            </Button>
+          </Stack>
+        ) : (
+          <Button
+            variant="outlined"
+            startIcon={<BorderStyleIcon />}
+            disabled={!targetZone}
+            onClick={() => setPickMode('referenceBorder')}
+            fullWidth
+            sx={{ mb: 1 }}
+          >
+            Choisir la bordure de référence
+          </Button>
+        )}
+        {pickMode === 'referenceBorder' && (
+          <Alert severity="info" sx={{ mb: 1 }}>
+            Clique sur l'arête (en bleu) qui oriente les allers-retours.
+          </Alert>
+        )}
+
+        <Divider sx={{ my: 2 }} />
+
+        {/* Contours intérieurs */}
+        <TextField
+          label="Contours intérieurs (headlands)"
+          type="number"
+          size="small"
+          fullWidth
+          value={headlandsInput}
+          onChange={e => commitHeadlands(e.target.value)}
+          onBlur={() => setHeadlandsInput(String(params.headlands))}
+          inputProps={{ min: 0, max: 10, step: 1 }}
+          helperText="Demi-tours de dégagement avant les allers-retours"
+          sx={{ mb: 2 }}
+        />
+
+        {/* Largeur de travail */}
+        <TextField
+          label="Largeur de travail (m)"
+          type="number"
+          size="small"
+          fullWidth
+          value={widthInput}
+          onChange={e => commitWidth(e.target.value)}
+          onBlur={() => setWidthInput(String(params.workingWidthM))}
+          inputProps={{ min: 0.1, step: 0.05 }}
+          helperText="Espacement entre deux passages"
+          sx={{ mb: 2 }}
+        />
+
+        {/* Exclusions */}
+        <FormControlLabel
+          control={
+            <Switch
+              checked={params.outlineObstacles}
+              onChange={e => setParams({ outlineObstacles: e.target.checked })}
+            />
+          }
+          label="Contour autour des obstacles"
+        />
+        <Typography variant="caption" color="text.secondary">
+          Les zones d'exclusion ne sont jamais traversées.
+        </Typography>
+
+        <Button variant="contained" disabled fullWidth sx={{ mt: 2 }}>
+          Générer les lignes
+        </Button>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+          Disponible après l'étape algorithme (6.3).
+        </Typography>
+      </CardContent>
+    </Card>
+  );
+};
+
+export default WorklinesSidebar;

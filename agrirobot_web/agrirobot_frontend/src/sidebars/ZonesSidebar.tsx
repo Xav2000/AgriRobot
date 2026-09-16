@@ -6,6 +6,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
 import BlockIcon from '@mui/icons-material/Block';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
+import TimelineIcon from '@mui/icons-material/Timeline';
 import { useZones } from '../context/ZonesContext';
 import { useUiMode } from '../context/UiModeContext';
 
@@ -15,12 +16,14 @@ import { useUiMode } from '../context/UiModeContext';
  *   non-tonte — jamais traversée par les lignes de guidage)
  * - liste des zones (sélection, suppression)
  * - renommage de la zone sélectionnée
+ * - accès au mode lignes de guidage (dès qu'une zone de tonte est complète)
  */
 const ZonesSidebar: React.FC = () => {
-  const { goBack } = useUiMode();
+  const { goBack, setMode } = useUiMode();
   const { zones, selectedZoneId, selectZone, addZone, renameZone, deleteZone } = useZones();
 
   const selectedZone = zones.find(z => z.id === selectedZoneId) ?? null;
+  const hasMowZone = zones.some(z => z.type === 'mow' && z.points.length >= 3);
 
   return (
     <Card>
@@ -107,6 +110,18 @@ const ZonesSidebar: React.FC = () => {
               </Paper>
             ))}
           </Stack>
+        )}
+
+        {hasMowZone && (
+          <Button
+            variant="outlined"
+            startIcon={<TimelineIcon />}
+            onClick={() => setMode('worklines')}
+            fullWidth
+            sx={{ mb: 2 }}
+          >
+            Lignes de guidage
+          </Button>
         )}
 
         {selectedZone && (

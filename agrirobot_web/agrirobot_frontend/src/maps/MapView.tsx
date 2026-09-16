@@ -5,6 +5,7 @@ import ROSLIB from 'roslib';
 import { useRos } from '../hooks/useRos';
 import { MissionLayer } from './MissionLayer';
 import { ZonesLayer } from './ZonesLayer';
+import { WorklinesLayer } from './WorklinesLayer';
 import 'leaflet/dist/leaflet.css';
 
 // Fix pour les icônes Leaflet (nécessaire avec Webpack)
@@ -72,6 +73,8 @@ const MapView: React.FC = () => {
       />
       {/* Zones (polygones) + édition des sommets */}
       <ZonesLayer />
+      {/* Paramètres des lignes de guidage (mode worklines) */}
+      <WorklinesLayer />
       {/* Parcours de la mission + progression des tâches */}
       <MissionLayer />
       {robotPosition && (
