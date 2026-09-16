@@ -7,7 +7,7 @@ import StopIcon from '@mui/icons-material/Stop';
 import ROSLIB from 'roslib';
 
 import RobotInfo from '../robot/RobotInfo';
-import { CurrentTaskCard } from './CurrentTaskCard';
+import { CurrentTaskCard } from '../dashboard/CurrentTaskCard';
 import { useTasks } from '../hooks/useTasks';
 import { useRos } from '../hooks/useRos';
 import { useUiMode } from '../context/UiModeContext';
