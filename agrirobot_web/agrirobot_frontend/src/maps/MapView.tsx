@@ -4,6 +4,7 @@ import L from 'leaflet';
 import ROSLIB from 'roslib';
 import { useRos } from '../hooks/useRos';
 import { MissionLayer } from './MissionLayer';
+import { ZonesLayer } from './ZonesLayer';
 import 'leaflet/dist/leaflet.css';
 
 // Fix pour les icônes Leaflet (nécessaire avec Webpack)
@@ -69,6 +70,8 @@ const MapView: React.FC = () => {
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       />
+      {/* Zones (polygones) + édition des sommets */}
+      <ZonesLayer />
       {/* Parcours de la mission + progression des tâches */}
       <MissionLayer />
       {robotPosition && (

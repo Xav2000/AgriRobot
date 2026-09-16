@@ -32,7 +32,7 @@ const TYPE_LABELS: Record<Task['type'], string> = {
 const PlanningSidebar: React.FC = () => {
   const { ros, connectionState } = useRos();
   const { tasks } = useTasks();
-  const { setMode } = useUiMode();
+  const { setMode, goBack } = useUiMode();
 
   const disabled = connectionState !== 'connected';
 
@@ -79,7 +79,7 @@ const PlanningSidebar: React.FC = () => {
     setQueue(prev => [
       ...prev,
       {
-        id: `local-${Date.now()}`,
+        id: 'local-' + Date.now(),
         name: newName.trim(),
         type: newType,
         status: 'pending',
@@ -105,6 +105,10 @@ const PlanningSidebar: React.FC = () => {
     cmdPub.publish(new ROSLIB.Message({
       data: JSON.stringify({ action: 'generate_mission', tasks: queue }),
     }));
+    // File vidée : la prochaine session de planification repartira
+    // des tâches pending publiées par le backend
+    setQueue([]);
+    importedRef.current = false;
     setMode('dashboard');
   };
 
@@ -113,7 +117,7 @@ const PlanningSidebar: React.FC = () => {
       <CardContent>
         <Button
           startIcon={<ArrowBackIcon />}
-          onClick={() => setMode('dashboard')}
+          onClick={goBack}
           sx={{ mb: 2 }}
         >
           Retour
@@ -206,7 +210,7 @@ const PlanningSidebar: React.FC = () => {
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography noWrap fontWeight={600}>{task.name}</Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {TYPE_LABELS[task.type]}{task.field ? ` • ${task.field}` : ''}
+                    {TYPE_LABELS[task.type]}{task.field ? ' • ' + task.field : ''}
                   </Typography>
                 </Box>
                 <IconButton size="small" onClick={() => removeTask(task.id)} aria-label="supprimer la tâche">
@@ -228,7 +232,7 @@ const PlanningSidebar: React.FC = () => {
             disabled={disabled || queue.length === 0}
             fullWidth
           >
-            Générer le parcours{queue.length > 0 ? ` (${queue.length} tâche${queue.length > 1 ? 's' : ''})` : ''}
+            Générer le parcours{queue.length > 0 ? ' (' + queue.length + ' tâche' + (queue.length > 1 ? 's' : '') + ')' : ''}
           </Button>
           <Button
             variant="outlined"
