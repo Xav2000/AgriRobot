@@ -19,8 +19,8 @@ const STATUS_INFO: Record<string, { color: 'success' | 'warning' | 'info' | 'err
 };
 
 /**
- * Barre d'état du robot, intégrée à l'AppBar (centrée entre le titre
- * et le chip de connexion ROS 2) :
+ * Barre d'état du robot, AU-DESSUS de la carte et ALIGNÉE À GAUCHE
+ * avec le bord gauche de la carte :
  * - Batterie + statut du robot, toujours visibles
  * - Actions rapides (station) visibles UNIQUEMENT quand aucune tâche
  *   n'est en cours : le robot doit d'abord être arrêté.
@@ -52,61 +52,62 @@ export const RobotStatusBar: React.FC = () => {
   const batteryColor = battery > 50 ? 'success' : battery > 20 ? 'warning' : 'error';
 
   return (
-    <Paper
-      elevation={0}
-      variant="outlined"
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 1.5,
-        px: 2,
-        py: 0.5,
-        borderRadius: 999,
-        bgcolor: 'background.paper',
-        minWidth: 0,
-        overflow: 'auto',
-      }}
-    >
-      {!connected ? (
-        <Chip label="ROS 2 : non connecté" color="error" size="small" />
-      ) : (
-        <>
-          {battery > 20
-            ? <BatteryFullIcon color="success" />
-            : <BatteryAlertIcon color="error" />}
+    <Box sx={{ display: 'flex', flexShrink: 0 }}>
+      <Paper
+        elevation={2}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1.5,
+          px: 2,
+          py: 0.75,
+          borderRadius: 999,
+          bgcolor: 'background.paper',
+          maxWidth: '100%',
+          overflow: 'auto',
+        }}
+      >
+        {!connected ? (
+          <Chip label="ROS 2 : non connecté" color="error" size="small" />
+        ) : (
+          <>
+            {battery > 20
+              ? <BatteryFullIcon color="success" />
+              : <BatteryAlertIcon color="error" />}
 
-          <Box sx={{ minWidth: 110 }}>
-            <Typography variant="caption" sx={{ lineHeight: 1 }}>
-              Batterie {battery} %
-            </Typography>
-            <LinearProgress
-              variant="determinate"
-              value={battery}
-              color={batteryColor}
-              sx={{ height: 6, borderRadius: 3, mt: 0.5 }}
-            />
-          </Box>
+            <Box sx={{ minWidth: 110 }}>
+              <Typography variant="caption" sx={{ lineHeight: 1 }}>
+                Batterie {battery} %
+              </Typography>
+              <LinearProgress
+                variant="determinate"
+                value={battery}
+                color={batteryColor}
+                sx={{ height: 6, borderRadius: 3, mt: 0.5 }}
+              />
+            </Box>
 
-          <Chip color={statusInfo.color} label={statusInfo.label} size="small" />
+            <Chip color={statusInfo.color} label={statusInfo.label} size="small" />
 
-          {showActions && (
-            <>
-              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-              <Stack direction="row" spacing={0.5}>
-                <Button size="small" variant="contained" color="success" onClick={() => sendCommand('go_to_charge')}>
-                  Aller à la station
-                </Button>
-                <Button size="small" variant="contained" color="success" onClick={() => sendCommand('leave_charge')}>
-                  Quitter la station
-                </Button>
-                <Button size="small" variant="contained" color="success" onClick={() => sendCommand('return_to_charge')}>
-                  Retour à la station
-                </Button>
-              </Stack>
-            </>
-          )}
-        </>
-      )}
-    </Paper>
+            {showActions && (
+              <>
+                <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+                <Stack direction="row" spacing={0.5}>
+                  <Button size="small" variant="contained" color="success" onClick={() => sendCommand('go_to_charge')}>
+                    Aller à la station
+                  </Button>
+                  <Button size="small" variant="contained" color="success" onClick={() => sendCommand('leave_charge')}>
+                    Quitter la station
+                  </Button>
+                  <Button size="small" variant="contained" color="success" onClick={() => sendCommand('return_to_charge')}>
+                    Retour à la station
+                  </Button>
+                </Stack>
+              </>
+            )}
+          </>
+        )}
+      </Paper>
+    </Box>
   );
 };

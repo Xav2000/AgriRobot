@@ -46,15 +46,11 @@ function App() {
     <UiModeProvider>
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: 'background.default' }}>
         <AppBar position="static" color="default" elevation={0} sx={{ bgcolor: 'background.paper' }}>
-          <Toolbar sx={{ gap: 2 }}>
-            <Typography variant="h6" component="h1" sx={{ fontWeight: 700, flexShrink: 0 }}>
+          <Toolbar>
+            <Typography variant="h6" component="h1" sx={{ flexGrow: 1, fontWeight: 700 }}>
               AgriRobot — Gestion des robots agricoles
             </Typography>
-            {/* État du robot — centré entre le titre et les contrôles de droite */}
-            <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'center', minWidth: 0 }}>
-              <RobotStatusBar />
-            </Box>
-            <Chip label={'ROS 2 : ' + statusText} color={statusColor as any} size="small" sx={{ flexShrink: 0 }} />
+            <Chip label={'ROS 2 : ' + statusText} color={statusColor as any} size="small" sx={{ mr: 1 }} />
             <IconButton onClick={toggleColorMode} color="inherit" aria-label="basculer le mode sombre">
               {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
             </IconButton>
@@ -78,18 +74,28 @@ function App() {
           }}>
             <SidebarSwitcher />
           </Stack>
-          {/* Carte — occupe tout l'espace restant, jamais démontée */}
+          {/* Colonne carte : barre d'état du robot au-dessus, alignée à gauche avec la carte */}
           <Box sx={{
             flex: 1,
-            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1,
             minHeight: 0,
-            borderRadius: 2,
-            overflow: 'hidden',
-            border: '1px solid',
-            borderColor: 'divider',
-            boxShadow: 1,
           }}>
-            <MapView />
+            <RobotStatusBar />
+            {/* Carte — occupe tout l'espace restant, jamais démontée */}
+            <Box sx={{
+              flex: 1,
+              position: 'relative',
+              minHeight: 0,
+              borderRadius: 2,
+              overflow: 'hidden',
+              border: '1px solid',
+              borderColor: 'divider',
+              boxShadow: 1,
+            }}>
+              <MapView />
+            </Box>
           </Box>
         </Box>
       </Box>
