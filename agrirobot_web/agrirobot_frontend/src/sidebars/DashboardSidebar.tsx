@@ -4,6 +4,8 @@ import ScheduleIcon from '@mui/icons-material/Schedule';
 import MapIcon from '@mui/icons-material/Map';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
+import ROSLIB from 'roslib';
+
 import RobotInfo from '../robot/RobotInfo';
 import { CurrentTaskCard } from './CurrentTaskCard';
 import { useTasks } from '../hooks/useTasks';
@@ -14,20 +16,29 @@ import { useUiMode } from '../context/UiModeContext';
  * Sidebar du mode Dashboard :
  * - État du robot (batterie, statut, position)
  * - Tâche en cours avec progression
- * - Boutons de contrôle (Démarrer / Arrêter / Retour station via RobotInfo)
+ * - Boutons de contrôle (Démarrer / Arrêter)
  * - Bouton "Planifier" visible UNIQUEMENT si le robot est inactif
  */
 const DashboardSidebar: React.FC = () => {
-  const { connectionState } = useRos();
+  const { ros, connectionState } = useRos();
   const { hasRunningTask } = useTasks();
   const { setMode } = useUiMode();
 
   const disabled = connectionState !== 'connected';
 
   // Le robot est considéré comme inactif si :
-  // - Pas de tâche en cours ET
-  // - ROS est connecté (sinon on ne peut pas planifier)
+  // - Pas de tâche en cours ET ROS connecté
   const robotInactive = !hasRunningTask && !disabled;
+
+  const handleTaskCommand = (action: 'start_all_tasks' | 'stop_all_tasks') => {
+    if (!ros || disabled) return;
+    const cmdPub = new ROSLIB.Topic({
+      ros,
+      name: '/task/command',
+      messageType: 'std_msgs/String',
+    });
+    cmdPub.publish(new ROSLIB.Message({ data: JSON.stringify({ action }) }));
+  };
 
   return (
     <>
@@ -49,18 +60,7 @@ const DashboardSidebar: React.FC = () => {
                 variant="contained"
                 color="error"
                 startIcon={<StopIcon />}
-                onClick={() => {
-                  if (!disabled) {
-                    const cmdPub = new (window as any).ROSLIB.Topic({
-                      ros: (window as any).rosInstance,
-                      name: '/task/command',
-                      messageType: 'std_msgs/String',
-                    });
-                    cmdPub.publish(new (window as any).ROSLIB.Message({
-                      data: JSON.stringify({ action: 'stop_all_tasks' }),
-                    }));
-                  }
-                }}
+                onClick={() => handleTaskCommand('stop_all_tasks')}
                 disabled={disabled}
                 fullWidth
               >
@@ -71,18 +71,7 @@ const DashboardSidebar: React.FC = () => {
                 variant="contained"
                 color="success"
                 startIcon={<PlayArrowIcon />}
-                onClick={() => {
-                  if (!disabled) {
-                    const cmdPub = new (window as any).ROSLIB.Topic({
-                      ros: (window as any).rosInstance,
-                      name: '/task/command',
-                      messageType: 'std_msgs/String',
-                    });
-                    cmdPub.publish(new (window as any).ROSLIB.Message({
-                      data: JSON.stringify({ action: 'start_all_tasks' }),
-                    }));
-                  }
-                }}
+                onClick={() => handleTaskCommand('start_all_tasks')}
                 disabled={disabled}
                 fullWidth
               >
