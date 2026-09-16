@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Card, CardContent, Typography, Button, Alert, Stack, TextField, Select,
+  Card, CardContent, Typography, Button, Alert, Stack, Box, TextField, Select,
   MenuItem, InputLabel, FormControl, Switch, FormControlLabel, Divider,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -11,16 +11,16 @@ import { useZones } from '../context/ZonesContext';
 import { useWorklines } from '../context/WorklinesContext';
 
 /**
- * Sidebar du mode lignes de guidage (étape 6.2) : saisie des paramètres de
- * génération — zone cible, point d'entrée, bordure de référence, contours
- * intérieurs (headlands), largeur de travail, contour des obstacles.
- * Le point d'entrée et la bordure se choisissent par interaction carte.
- * Aucune génération ici : l'algorithme arrive à l'étape 6.3.
+ * Sidebar du mode lignes de guidage : saisie des paramètres de génération
+ * (zone cible, point d'entrée, bordure de référence, headlands, largeur,
+ * obstacles) puis génération et prévisualisation sur la carte.
+ * Sur la carte : blanc = passages et contours, orange pointillé =
+ * transitions (contrôle visuel du trajet du robot).
  */
 const WorklinesSidebar: React.FC = () => {
   const { goBack } = useUiMode();
   const { zones } = useZones();
-  const { params, pickMode, setPickMode, setParams } = useWorklines();
+  const { params, pickMode, setPickMode, setParams, result, generate, clearResult } = useWorklines();
 
   const mowZones = zones.filter(z => z.type === 'mow' && z.points.length >= 3);
   const targetZone = zones.find(z => z.id === params.targetZoneId) ?? null;
@@ -51,8 +51,7 @@ const WorklinesSidebar: React.FC = () => {
 
         <Typography variant="h6" gutterBottom>Lignes de guidage</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Paramètres de génération pour la zone cible. Le calcul des lignes
-          arrive à l'étape suivante.
+          Paramètres de génération pour la zone cible.
         </Typography>
 
         {/* Zone de tonte cible */}
@@ -179,12 +178,34 @@ const WorklinesSidebar: React.FC = () => {
           Les zones d'exclusion ne sont jamais traversées.
         </Typography>
 
-        <Button variant="contained" disabled fullWidth sx={{ mt: 2 }}>
+        <Button
+          variant="contained"
+          fullWidth
+          sx={{ mt: 2 }}
+          disabled={!targetZone}
+          onClick={generate}
+        >
           Générer les lignes
         </Button>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-          Disponible après l'étape algorithme (6.3).
-        </Typography>
+
+        {result && (
+          <Box sx={{ mt: 1.5 }}>
+            <Alert severity="success">
+              {result.stats.sweepPasses} passes • {result.stats.headlandLoops} contour
+              {result.stats.headlandLoops > 1 ? 's' : ''} • {result.stats.transitions} transitions
+              • {result.stats.totalLengthM} m au total
+            </Alert>
+            {result.warnings.map((warn, i) => (
+              <Alert key={i} severity="warning" sx={{ mt: 1 }}>{warn}</Alert>
+            ))}
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Sur la carte : blanc = passages et contours, orange pointillé = transitions.
+            </Typography>
+            <Button size="small" onClick={clearResult} sx={{ mt: 0.5 }}>
+              Effacer les lignes
+            </Button>
+          </Box>
+        )}
       </CardContent>
     </Card>
   );

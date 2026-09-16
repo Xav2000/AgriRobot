@@ -1,4 +1,6 @@
 import React, { createContext, useCallback, useContext, useState } from 'react';
+import { useZones } from './ZonesContext';
+import { generateWorklines, WorklinesResult } from '../lib/worklines';
 
 /** Ce que l'opérateur est en train de sélectionner sur la carte. */
 export type PickMode = null | 'entryPoint' | 'referenceBorder';
@@ -12,8 +14,9 @@ export type PickMode = null | 'entryPoint' | 'referenceBorder';
  * - largeur de travail (m)
  * - contour optionnel autour des zones d'exclusion
  *
- * Aucun calcul ici : ces paramètres seront consommés par l'algorithme de
- * génération (étape 6.3). Les zones d'exclusion proviennent du ZonesContext.
+ * L'algorithme (étape 6.3) vit dans src/lib/worklines.ts : ce contexte
+ * stocke les paramètres, lance la génération et garde le résultat pour
+ * l'affichage (prévisualisation) et l'étape de validation (6.4).
  */
 export interface WorklinesParams {
   targetZoneId: string | null;
@@ -44,17 +47,24 @@ interface WorklinesContextValue {
   setPickMode: (mode: PickMode) => void;
   /**
    * Fusionne un patch dans les paramètres. Changer de zone cible
-   * réinitialise le point d'entrée et la bordure de référence.
+   * réinitialise le point d'entrée, la bordure de référence et le résultat.
    */
   setParams: (patch: Partial<WorklinesParams>) => void;
   resetParams: () => void;
+  /** Résultat de la dernière génération (null si rien de généré) */
+  result: WorklinesResult | null;
+  /** Calcule les lignes à partir des paramètres et des zones courants */
+  generate: () => void;
+  clearResult: () => void;
 }
 
 const WorklinesContext = createContext<WorklinesContextValue | null>(null);
 
 export const WorklinesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { zones } = useZones();
   const [params, setParamsState] = useState<WorklinesParams>(DEFAULT_PARAMS);
   const [pickMode, setPickMode] = useState<PickMode>(null);
+  const [result, setResult] = useState<WorklinesResult | null>(null);
 
   const setParams = useCallback((patch: Partial<WorklinesParams>) => {
     setParamsState(prev => {
@@ -66,15 +76,26 @@ export const WorklinesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
       return next;
     });
+    // Changer de zone cible invalide les lignes affichées
+    if (patch.targetZoneId !== undefined) setResult(null);
   }, []);
+
+  const generate = useCallback(() => {
+    setResult(generateWorklines(params, zones));
+  }, [params, zones]);
+
+  const clearResult = useCallback(() => setResult(null), []);
 
   const resetParams = useCallback(() => {
     setParamsState(DEFAULT_PARAMS);
     setPickMode(null);
+    setResult(null);
   }, []);
 
   return (
-    <WorklinesContext.Provider value={{ params, pickMode, setPickMode, setParams, resetParams }}>
+    <WorklinesContext.Provider
+      value={{ params, pickMode, setPickMode, setParams, resetParams, result, generate, clearResult }}
+    >
       {children}
     </WorklinesContext.Provider>
   );

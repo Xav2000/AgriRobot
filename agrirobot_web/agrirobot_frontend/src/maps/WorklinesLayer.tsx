@@ -26,17 +26,17 @@ const entryIcon = L.divIcon({
 });
 
 /**
- * Couche des lignes de guidage (mode worklines, étape 6.2) :
+ * Couche des lignes de guidage (mode worklines) :
  * - point d'entrée : placé au clic sur la carte, glissable ensuite
- * - bordure de référence : pendant la sélection, les arêtes de la zone
- *   cible sont épaisses et cliquables ; l'arête choisie reste surlignée
- *   en jaune avec liseré blanc
- * Aucune ligne n'est générée ici (algorithme en 6.3).
+ * - bordure de référence : arêtes cliquables pendant la sélection ;
+ *   l'arête choisie est surlignée en jaune avec liseré blanc
+ * - lignes générées : passages et contours en blanc, transitions en
+ *   orange pointillé (contrôle visuel du trajet du robot)
  */
 export const WorklinesLayer: React.FC = () => {
   const { mode } = useUiMode();
   const { zones } = useZones();
-  const { params, pickMode, setPickMode, setParams } = useWorklines();
+  const { params, pickMode, setPickMode, setParams, result } = useWorklines();
   const map = useMap();
 
   const targetZone = zones.find(z => z.id === params.targetZoneId) ?? null;
@@ -77,6 +77,21 @@ export const WorklinesLayer: React.FC = () => {
 
   return (
     <>
+      {/* Lignes générées : passages/contours en blanc, transitions en orange pointillé */}
+      {result && result.lines.map((line, i) => (
+        <Polyline
+          key={'workline-' + i}
+          positions={line.points}
+          pathOptions={
+            line.kind === 'transition'
+              ? { color: '#FF9800', weight: 2, dashArray: '6 6', opacity: 0.95 }
+              : line.kind === 'headland'
+                ? { color: '#FFFFFF', weight: 3 }
+                : { color: '#FFFFFF', weight: 1.5, opacity: 0.85 }
+          }
+        />
+      ))}
+
       {/* Arêtes sélectionnables pendant le choix de la bordure de référence */}
       {pickMode === 'referenceBorder' &&
         edges.map((edge, i) => (
