@@ -74,20 +74,28 @@ function App() {
           }}>
             <SidebarSwitcher />
           </Stack>
-          {/* Carte — occupe tout l'espace restant, jamais démontée */}
+          {/* Colonne carte : barre d'état du robot AU-DESSUS de la carte */}
           <Box sx={{
             flex: 1,
-            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1,
             minHeight: 0,
-            borderRadius: 2,
-            overflow: 'hidden',
-            border: '1px solid',
-            borderColor: 'divider',
-            boxShadow: 1,
           }}>
-            <MapView />
-            {/* Barre flottante : état du robot + actions rapides */}
             <RobotStatusBar />
+            {/* Carte — occupe tout l'espace restant, jamais démontée */}
+            <Box sx={{
+              flex: 1,
+              position: 'relative',
+              minHeight: 0,
+              borderRadius: 2,
+              overflow: 'hidden',
+              border: '1px solid',
+              borderColor: 'divider',
+              boxShadow: 1,
+            }}>
+              <MapView />
+            </Box>
           </Box>
         </Box>
       </Box>
