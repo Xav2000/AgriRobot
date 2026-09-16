@@ -4,14 +4,16 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
+import BlockIcon from '@mui/icons-material/Block';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import { useZones } from '../context/ZonesContext';
 import { useUiMode } from '../context/UiModeContext';
 
 /**
  * Sidebar du mode édition de zones (polygones) :
+ * - création de zones de tonte (palette) ou d'exclusion (rouge : obstacle,
+ *   non-tonte — jamais traversée par les lignes de guidage)
  * - liste des zones (sélection, suppression)
- * - création de zone (passe automatiquement en mode dessin)
  * - renommage de la zone sélectionnée
  */
 const ZonesSidebar: React.FC = () => {
@@ -33,16 +35,26 @@ const ZonesSidebar: React.FC = () => {
 
         <Typography variant="h6" gutterBottom>Édition des zones</Typography>
 
-        <Button
-          variant="contained"
-          color="success"
-          startIcon={<AddIcon />}
-          onClick={addZone}
-          fullWidth
-          sx={{ mb: 2 }}
-        >
-          Nouvelle zone
-        </Button>
+        <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+          <Button
+            variant="contained"
+            color="success"
+            startIcon={<AddIcon />}
+            onClick={() => addZone('mow')}
+            fullWidth
+          >
+            Zone de tonte
+          </Button>
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<BlockIcon />}
+            onClick={() => addZone('exclusion')}
+            fullWidth
+          >
+            Exclusion
+          </Button>
+        </Stack>
 
         {zones.length === 0 ? (
           <Alert severity="info">
@@ -78,6 +90,7 @@ const ZonesSidebar: React.FC = () => {
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography noWrap fontWeight={600}>{zone.name}</Typography>
                   <Typography variant="caption" color="text.secondary">
+                    {zone.type === 'exclusion' ? 'Exclusion • ' : ''}
                     {zone.points.length} sommet{zone.points.length > 1 ? 's' : ''}
                   </Typography>
                 </Box>
@@ -114,8 +127,8 @@ const ZonesSidebar: React.FC = () => {
         )}
 
         <Alert severity="info" sx={{ mt: 2 }}>
-          Persistance des zones (fichier JSON côté ROS) à venir — elles sont conservées
-          pendant la session.
+          Les zones d'exclusion (rouge) ne seront jamais traversées par les lignes de
+          guidage. Persistance à venir.
         </Alert>
       </CardContent>
     </Card>

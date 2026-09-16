@@ -31,7 +31,8 @@ const MapClickHandler: React.FC = () => {
 
 /**
  * Couche Leaflet des zones (polygones) :
- * - polygones colorés, cliquables pour sélection
+ * - zones de tonte (palette) et zones d'exclusion (rouge, pointillées)
+ * - cliquables pour sélection
  * - sommets éditables sur la zone sélectionnée : glisser pour déplacer,
  *   clic droit pour supprimer
  * - curseur croix en mode dessin
@@ -55,6 +56,7 @@ export const ZonesLayer: React.FC = () => {
 
       {zones.map(zone => {
         const selected = zone.id === selectedZoneId;
+        const isExclusion = zone.type === 'exclusion';
 
         return (
           <React.Fragment key={zone.id}>
@@ -63,13 +65,16 @@ export const ZonesLayer: React.FC = () => {
                 positions={zone.points}
                 pathOptions={{
                   color: zone.color,
-                  fillOpacity: selected ? 0.3 : 0.15,
+                  fillOpacity: isExclusion ? 0.25 : selected ? 0.3 : 0.15,
                   weight: selected ? 3 : 2,
                   dashArray: selected ? undefined : '4 6',
                 }}
                 eventHandlers={{ click: () => selectZone(zone.id) }}
               >
-                <Tooltip sticky>{zone.name}</Tooltip>
+                <Tooltip sticky>
+                  {zone.name}
+                  {isExclusion ? ' — exclusion' : ''}
+                </Tooltip>
               </Polygon>
             )}
 

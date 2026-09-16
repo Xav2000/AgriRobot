@@ -1,14 +1,19 @@
 import React, { createContext, useCallback, useContext, useState } from 'react';
 
+export type ZoneType = 'mow' | 'exclusion';
+
 export interface Zone {
   id: string;
   name: string;
+  type: ZoneType;
   color: string;
   /** Sommets [lat, lng] dans l'ordre du contour */
   points: [number, number][];
 }
 
-const PALETTE = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#00BCD4'];
+/** Palette des zones de tonte (le rouge est réservé aux exclusions). */
+const MOW_PALETTE = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#00BCD4'];
+const EXCLUSION_COLOR = '#f44336';
 
 interface ZonesContextValue {
   zones: Zone[];
@@ -16,7 +21,7 @@ interface ZonesContextValue {
   drawMode: boolean;
   setDrawMode: (v: boolean) => void;
   selectZone: (id: string | null) => void;
-  addZone: () => void;
+  addZone: (type?: ZoneType) => void;
   renameZone: (id: string, name: string) => void;
   deleteZone: (id: string) => void;
   appendPoint: (point: [number, number]) => void;
@@ -29,24 +34,33 @@ const ZonesContext = createContext<ZonesContextValue | null>(null);
 
 /**
  * État des zones (polygones), partagé entre la sidebar Zones, la couche
- * carte et la toolbar d'édition. Persistance (JSON côté ROS) à venir.
+ * carte et la toolbar d'édition. Deux types :
+ * - 'mow' : zone de tonte/travail (palette de couleurs)
+ * - 'exclusion' : obstacle / non-tonte (rouge) — les lignes de guidage
+ *   générées ne devront jamais la traverser.
+ * Persistance (JSON hors navigateur) à venir.
  */
 export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [zones, setZones] = useState<Zone[]>([]);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [drawMode, setDrawMode] = useState(false);
 
-  const addZone = useCallback(() => {
+  const addZone = useCallback((type: ZoneType = 'mow') => {
+    const mowCount = zones.filter(z => z.type === 'mow').length;
+    const exclusionCount = zones.filter(z => z.type === 'exclusion').length;
     const zone: Zone = {
       id: 'zone-' + Date.now(),
-      name: 'Zone ' + (zones.length + 1),
-      color: PALETTE[zones.length % PALETTE.length],
+      name: type === 'mow'
+        ? 'Zone ' + (mowCount + 1)
+        : 'Exclusion ' + (exclusionCount + 1),
+      type,
+      color: type === 'exclusion' ? EXCLUSION_COLOR : MOW_PALETTE[mowCount % MOW_PALETTE.length],
       points: [],
     };
     setZones(prev => [...prev, zone]);
     setSelectedZoneId(zone.id);
     setDrawMode(true);
-  }, [zones.length]);
+  }, [zones]);
 
   const selectZone = useCallback((id: string | null) => {
     setSelectedZoneId(id);
