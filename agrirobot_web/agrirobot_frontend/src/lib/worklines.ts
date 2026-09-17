@@ -691,7 +691,19 @@ export function generateWorklines(
             contoured.has(o) || !rowCrosses(s, i) ||
             (!onAnyRing(qa, [o, ...loopsOf(i)]) && !onAnyRing(qb, [o, ...loopsOf(i)])));
         });
-        if (untouched.length > 0) candidates = untouched;
+        // ... mais UNIQUEMENT tant que la position courante est HORS
+        // de la bande transversale d'un obstacle non contourné : dès
+        // que le parcours ATTEINT la zone de l'obstacle, on cesse de
+        // différer les pièces raccourcies — contour de l'obstacle,
+        // puis le côté le plus proche PAR LE CHEMIN, puis l'autre
+        // côté, avant de revenir aux lignes pleines restantes (plus de
+        // traversée de la zone pour finir les blancs au bout de la
+        // parcelle).
+        const inBand = le != null && obstacles.some((o, i) =>
+          !contoured.has(o) &&
+          tOf(le) >= ringTExtents[i].tMin - 1e-6 &&
+          tOf(le) <= ringTExtents[i].tMax + 1e-6);
+        if (!inBand && untouched.length > 0) candidates = untouched;
       // Segment dont l'extrémité la plus proche de la position courante
       // est minimale (boustrophédon naturel, U-turn au plus près).
       let bestSeg: Seg | null = null;
