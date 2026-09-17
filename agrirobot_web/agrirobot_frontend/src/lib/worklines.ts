@@ -661,20 +661,26 @@ export function generateWorklines(
       }
       if (!bestSeg) break;
       const startPt = bestRev ? at(bestSeg.t, bestSeg.b) : at(bestSeg.t, bestSeg.a);
-      // Bascule d'un côté à l'autre d'un obstacle : tracé des contours de
-      // l'obstacle À CE MOMENT-LÀ (le trait pointillé de transition mène
-      // au début du contour, puis les anneaux sont parcourus du plus
-      // extérieur au plus intérieur).
+      // Première ligne COUPÉE par un obstacle : contours de l'obstacle
+      // tracés AVANT de travailler les côtés (le robot nettoie le
+      // pourtour pour demi-tourer dans une zone propre), puis il
+      // travaille un côté puis l'autre avant de revenir aux lignes
+      // pleines.
       for (let i = 0; i < obstacles.length; i++) {
         const side = sideOfSeg(bestSeg, i);
-        if (side === null) continue;
-        const prev = effSide[i];
-        if (le && prev !== null && prev !== side &&
-            params.outlineObstacles && !contoured.has(obstacles[i])) {
-          contoured.add(obstacles[i]);
-          emitObstacleContours(i);
+        if (side !== null) effSide[i] = side;
+      }
+      if (le && params.outlineObstacles) {
+        const pa = at(bestSeg.t, bestSeg.a);
+        const pb = at(bestSeg.t, bestSeg.b);
+        for (let i = 0; i < obstacles.length; i++) {
+          if (contoured.has(obstacles[i])) continue;
+          const rings = [obstacles[i], ...loopsOf(i)];
+          if (onAnyRing(pa, rings) || onAnyRing(pb, rings)) {
+            contoured.add(obstacles[i]);
+            emitObstacleContours(i);
+          }
         }
-        effSide[i] = side;
       }
       const pa = at(bestSeg.t, bestSeg.a);
       const pb = at(bestSeg.t, bestSeg.b);
