@@ -249,7 +249,7 @@ export function generateWorklines(
   const warnings: string[] = [];
   const empty: WorklinesResult = {
     lines: [],
-    stats: { totalLengthM: 0, headlandLoops: 0, sweepPasses: 0, transitions: 0 },
+    stats: { totalLengthM: 0, headlandLoops: 0, sweepPasses: 0, transitions: 0 , obstacleContours: 0 },
     warnings,
   };
 
