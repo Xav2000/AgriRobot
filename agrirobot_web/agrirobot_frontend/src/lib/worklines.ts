@@ -135,7 +135,11 @@ const fromClipper = (paths: any): Pt[][] =>
  * Renvoie zéro ou plusieurs anneaux (la zone peut se scinder).
  */
 const offsetRings = (rings: Pt[][], deltaM: number): Pt[][] => {
-  const co = new ClipperLib.ClipperOffset(2, 0.25 * SCALE);
+  // ArcTolerance 2 mm : approximation fine des arrondis (jtRound). Une
+  // tolérance grossière (25 cm auparavant) déformait les contours gonflés —
+  // cordes larges coupant les coins, distance à l'obstacle variable selon
+  // la direction autour des exclusions.
+  const co = new ClipperLib.ClipperOffset(2, 0.002 * SCALE);
   co.AddPaths(toClipper(rings), ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
   const solution = new ClipperLib.Paths();
   co.Execute(solution, deltaM * SCALE);
@@ -513,7 +517,13 @@ export function generateWorklines(
     if (lastEnd) {
       startFromMax = tOf(lastEnd) > (tMin + tMax) / 2;
     }
-    const tValues: number[] = startFromMax ? [...gridValues].reverse() : gridValues;
+    // gridValues est construite DEPUIS la bordure de référence : son sens
+    // dépend du côté de la bordure (croissante si bordure côté tMin,
+    // décroissante si côté tMax). On ne l'inverse que si l'extrémité où
+    // elle commence n'est PAS le côté de départ voulu — sinon le parcours
+    // démarrait à l'opposé du point d'entrée (bordure du côté tMax).
+    const gridStartsAtMax = gridValues[gridValues.length - 1] < gridValues[0];
+    const tValues: number[] = (startFromMax !== gridStartsAtMax) ? [...gridValues].reverse() : gridValues;
 
     // Tous les segments de passe (les obstacles découpent les lignes en
     // morceaux de côté), puis parcours par CÔTÉS (règle utilisateur) :
