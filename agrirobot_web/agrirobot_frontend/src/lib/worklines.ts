@@ -15,6 +15,15 @@
  * 3. transitions droites entre tracés consécutifs — rendues distinctement
  *    (orange pointillé) pour contrôle visuel par l'opérateur.
  *
+ * Correctifs (retours de test) :
+ * - la bordure de référence est lue dans le polygone ORIGINAL (même index
+ *   que la sélection sur la carte) : le retournement d'orientation pour
+ *   Clipper se fait sur des copies, il ne décale plus les index ;
+ * - les allers-retours démarrent du côté de la zone le plus proche de la
+ *   position courante du robot (haut ou bas), et la première ligne est
+ *   parcourue depuis l'extrémité la plus proche — plus de traversée
+ *   complète du polygone après les contours.
+ *
  * À venir (6.3b) : contour des obstacles et réordonnancement
  * côté A / côté B autour de chaque obstacle.
  *
@@ -158,22 +167,25 @@ export function generateWorklines(
 
   const w = Math.max(0.05, params.workingWidthM);
   const origin: [number, number] = params.entryPoint ?? target.points[0];
-  const outer = ccw(target.points.map(p => toLocal(p, origin)));
+  // Polygone ORIGINAL : la bordure de référence est indexée dedans,
+  // exactement comme lors de la sélection sur la carte.
+  const raw = target.points.map(p => toLocal(p, origin));
+  const outer = ccw(raw);
 
   if (!params.entryPoint) {
     warnings.push("Point d'entrée non défini : le parcours démarre au premier sommet de la zone.");
-  } else if (!pointInRing(toLocal(params.entryPoint, origin), outer)) {
+  } else if (!pointInRing(toLocal(params.entryPoint, origin), raw)) {
     warnings.push("Le point d'entrée est en dehors de la zone cible.");
   }
 
   /* --- Direction des passes : parallèle à la bordure de référence --- */
   let refIndex = params.referenceBorderIndex;
-  if (refIndex == null || refIndex < 0 || refIndex >= outer.length) {
+  if (refIndex == null || refIndex < 0 || refIndex >= raw.length) {
     warnings.push('Bordure de référence non valide : arête n°1 utilisée par défaut.');
     refIndex = 0;
   }
-  const a1 = outer[refIndex];
-  const a2 = outer[(refIndex + 1) % outer.length];
+  const a1 = raw[refIndex];
+  const a2 = raw[(refIndex + 1) % raw.length];
   const edgeLen = Math.max(1e-6, dist(a1, a2));
   const d: Pt = { x: (a2.x - a1.x) / edgeLen, y: (a2.y - a1.y) / edgeLen }; // direction des passes
   const nv: Pt = { x: -d.y, y: d.x };                                      // progression
@@ -245,8 +257,39 @@ export function generateWorklines(
   if (sweepRings.length === 0 || !isFinite(tMin)) {
     warnings.push('Zone de balayage vide : zone trop petite pour la largeur de travail (contours seuls).');
   } else {
+    // Lignes candidates espacées d'une largeur
+    const tValues: number[] = [];
+    for (let t = tMin + w / 2; t <= tMax; t += w) tValues.push(t);
+
+    // Démarrage du côté le plus proche de la position courante :
+    // plus de traversée complète du polygone après les contours.
+    let startFromMax = false;
+    if (lastEnd) {
+      startFromMax = tOf(lastEnd) > (tMin + tMax) / 2;
+    }
+    if (startFromMax) {
+      tValues.reverse();
+      // recentre la première ligne côté tMax
+      tValues[0] = tMax - w / 2;
+    }
+
+    // Sens de parcours de la première ligne : depuis l'extrémité la plus
+    // proche de la position courante, puis alternance (zigzag).
     let forward = true;
-    for (let t = tMin + w / 2; t <= tMax; t += w) {
+    if (lastEnd && tValues.length > 0) {
+      const t0 = tValues[0];
+      // extrémités de la première ligne (approximation par le polygone)
+      let sMin = Infinity;
+      let sMax = -Infinity;
+      sweepRings.forEach(r => r.forEach(p => {
+        const s = sOf(p);
+        if (s < sMin) sMin = s;
+        if (s > sMax) sMax = s;
+      }));
+      forward = sOf(lastEnd) <= (sMin + sMax) / 2;
+    }
+
+    for (const t of tValues) {
       // Croisements de la ligne t avec tous les anneaux (zone + trous)
       const crossings: number[] = [];
       for (const r of sweepRings) {
