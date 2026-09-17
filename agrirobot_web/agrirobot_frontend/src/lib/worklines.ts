@@ -627,6 +627,10 @@ export function generateWorklines(
         if (onAnyRing(pa, rings) || onAnyRing(pb, rings)) {
           const side = sideOfSeg(seg, i);
           if (side !== null) return side;
+          // Pièce à cheval sur l'étendue s de l'obstacle (rangée proche
+          // d'une pointe) : côté décidé par le milieu de la pièce.
+          const ex = ringExtents[i];
+          return (seg.a + seg.b) / 2 >= (ex.sMin + ex.sMax) / 2 ? 1 : 0;
         }
       }
       return null;
