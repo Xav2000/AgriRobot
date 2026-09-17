@@ -16,19 +16,16 @@
  *    (orange pointillé) pour contrôle visuel par l'opérateur.
  *
  * Correctifs (retours de test) :
- * - bordure de référence lue dans le polygone ORIGINAL (le retournement
- *   d'orientation pour Clipper ne décale plus les index) ;
- * - allers-retours démarrant du côté le plus proche de la position
- *   courante du robot ;
- * - grille de lignes ancrée sur le côté de DÉPART (tMax - w/2 en
- *   descendant, ou tMin + w/2 en montant) : espacement strictement
- *   régulier, plus de pas double de rattrapage ;
- * - prolongement des passes dans les pointes : les lignes sont coupées
- *   sur un polygone une largeur plus large que la zone de balayage
- *   (jusqu'à juste avant le deuxième contour quand il y a des headlands)
- *   — priorité à la COUVERTURE TOTALE : mieux vaut un léger chevauchement
- *   dans les zones déjà couvertes qu'un manque dans les pointes. Les
- *   exclusions restent soustraites (jamais de passage dans un obstacle).
+ * - bordure de référence lue dans le polygone ORIGINAL ;
+ * - allers-retours démarrant du côté le plus proche de la position courante ;
+ * - grille ancrée sur le côté de départ (espacement strictement régulier) ;
+ * - passes prolongées dans les pointes (couverture totale, chevauchement
+ *   accepté — mieux vaut croiser que manquer) ;
+ * - positionnement de la première passe : à une demi-largeur À L'INTÉRIEUR
+ *   du dernier contour — la bande de headland et la première passe se
+ *   recouvrent d'une demi-largeur (couverture), et la première passe ne
+ *   longe jamais le contour sur toute sa longueur. Sans headland : à
+ *   w/2 du bord.
  *
  * À venir (6.3b) : contour des obstacles et réordonnancement
  * côté A / côté B autour de chaque obstacle.
@@ -208,15 +205,14 @@ export function generateWorklines(
     ringSet.forEach(r => headlandLoops.push(r));
   }
 
-  /* --- 2. Zone de coupe des passes ---------------------------------------
+  /* --- 2. Zone de coupe des passes --------------------------------------
    * Couverture totale : les passes sont prolongées d'une largeur dans la
-   * couronne des headlands — elles entrent dans les pointes et les coins,
-   * quitte à recouper des zones déjà couvertes (mieux vaut croiser que
-   * manquer). Repère : 0 headland → w/2 du bord ; N headlands → jusqu'à
-   * juste avant le deuxième contour (N-1 largeurs + une demi).
-   * Les exclusions restent TOUJOURS soustraites (marge d'une demi-largeur).
+   * couronne des headlands (elles entrent dans les pointes), quitte à
+   * recouper des zones déjà couvertes. La coupe est à N-1 largeurs +
+   * une demi du bord : une largeur plus large que la zone de balayage
+   * pure. Les exclusions restent TOUJOURS soustraites (marge w/2).
    */
-  const shrink = (Math.max(0, params.headlands - 1) * w) + w / 2;
+  const shrink = Math.max(0, params.headlands - 1) * w + w / 2;
   let sweepRings = offsetRings([outer], -shrink);
   const exclusions = zones
     .filter(z => z.type === 'exclusion' && z.points.length >= 3)
@@ -271,6 +267,14 @@ export function generateWorklines(
   if (sweepRings.length === 0 || !isFinite(tMin)) {
     warnings.push('Zone de balayage vide : zone trop petite pour la largeur de travail (contours seuls).');
   } else {
+    // Position de la première passe : à une demi-largeur À L'INTÉRIEUR du
+    // dernier headland — recouvrement d'une demi-largeur avec la bande de
+    // contour (couverture), sans longer le contour. Sans headland : w/2 du
+    // bord. tRef = distance signée du bord (bord = tMin).
+    const firstT = params.headlands * w + w / 2 - w / 2 + w / 2; // = N*w + w/2... voir ci-dessous
+    // Simplification : première passe à N*w + w/2 du bord.
+    const startOffset = params.headlands * w + w / 2;
+
     // Grille ancrée sur le côté de DÉPART : espacement strictement
     // régulier, pas de pas double de rattrapage.
     let startFromMax = false;
@@ -279,9 +283,13 @@ export function generateWorklines(
     }
     const tValues: number[] = [];
     if (startFromMax) {
-      for (let t = tMax - w / 2; t >= tMin + w / 2; t -= w) tValues.push(t);
+      const tHigh = tMax - startOffset;
+      const tLow = tMin + startOffset;
+      for (let t = tHigh; t >= tLow; t -= w) tValues.push(t);
     } else {
-      for (let t = tMin + w / 2; t <= tMax - w / 2; t += w) tValues.push(t);
+      const tLow = tMin + startOffset;
+      const tHigh = tMax - startOffset;
+      for (let t = tLow; t <= tHigh; t += w) tValues.push(t);
     }
 
     // Sens de parcours de la première ligne : depuis l'extrémité la plus
