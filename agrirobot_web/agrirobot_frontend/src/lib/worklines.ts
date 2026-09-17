@@ -627,8 +627,15 @@ export function generateWorklines(
         if (onAnyRing(pa, rings) || onAnyRing(pb, rings)) {
           const side = sideOfSeg(seg, i);
           if (side !== null) return side;
-          // Pièce à cheval sur l'étendue s de l'obstacle (rangée proche
-          // d'une pointe) : côté décidé par le milieu de la pièce.
+          // Pièce à cheval sur l'étendue s (rangée proche d'une pointe) :
+          // le côté est donné par l'EXTRÉMITÉ qui touche l'anneau —
+          // coupée en fin de pièce (b) = 1er côté (bleu), coupée en
+          // début (a) = 2e côté (violet) ; si les deux touchent, le
+          // milieu de la pièce départage.
+          const touchA = onAnyRing(pa, rings);
+          const touchB = onAnyRing(pb, rings);
+          if (touchA && !touchB) return 1;
+          if (touchB && !touchA) return 0;
           const ex = ringExtents[i];
           return (seg.a + seg.b) / 2 >= (ex.sMin + ex.sMax) / 2 ? 1 : 0;
         }
@@ -639,13 +646,17 @@ export function generateWorklines(
     while (allSegs.some(s => !s.done) && guard++ < allSegs.length + 10) {
       let candidates = allSegs.filter(s => !s.done);
       const le = lastEnd;
-      if (le) {
-        // Côté atteignable : transition directe possible sans obstacle
-        const reachable = candidates.filter(s =>
-          segClearOf(le, at(s.t, s.a), obstacles) &&
-          segClearOf(le, at(s.t, s.b), obstacles));
-        if (reachable.length > 0) candidates = reachable;
-      }
+      // Distance de parcours RÉEL jusqu'à chaque extrémité (ligne
+      // droite si libre, arc contournant l'obstacle sinon) : la pièce
+      // choisie est la plus proche PAR LE CHEMIN — une pièce de
+      // l'autre côté de l'obstacle, proche par l'arc, n'est plus
+      // écartée au profit de lignes blanches à l'autre bout de la
+      // parcelle (fini les déplacements anarchiques).
+      const routeLen = (from: Pt, to: Pt): number => {
+        if (segClearOf(from, to, obstacles)) return dist(from, to);
+        const path = routeTransition(from, to);
+        return path.reduce((s, q, i) => (i ? s + dist(path[i - 1], q) : 0), 0);
+      };
         // Lignes pleines d'abord : tant qu'une ligne NON coupée par un
         // obstacle pas encore contourné est disponible, on la privilégie
         // — le contour n'est déclenché que lorsque le parcours atteint
@@ -668,8 +679,8 @@ export function generateWorklines(
       for (const s of candidates) {
         const pa = at(s.t, s.a);
         const pb = at(s.t, s.b);
-        const da = le ? dist(le, pa) : 0;
-        const db = le ? dist(le, pb) : 0;
+        const da = le ? routeLen(le, pa) : 0;
+        const db = le ? routeLen(le, pb) : 0;
         const d = Math.min(da, db);
         if (d < bestD) { bestD = d; bestSeg = s; bestRev = db < da; }
       }
