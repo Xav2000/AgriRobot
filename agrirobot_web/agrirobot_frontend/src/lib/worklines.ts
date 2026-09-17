@@ -22,11 +22,10 @@
  * - R3 — les allers-retours s'arrêtent SUR la première ligne de contour
  *   rencontrée (la plus intérieure, à (N-0,5)·w du bord), sans la
  *   dépasser. Sans contour : coupe à w/2 du bord (R1).
- * - La grille des passes démarre sur la PREMIÈRE LIGNE COUVRANTE depuis
- *   la limite de coupe (recherche par petits pas de w/10, au plus une
- *   demi-largeur) : la limite exacte est souvent tangente au polygone
- *   (un seul sommet touché) et serait ignorée, laissant la première
- *   ligne réelle à une pleine largeur du bord (manque en parcelle).
+ * - La grille des passes est ancrée sur la bordure de référence :
+ *   première ligne à w/2 du bord sans contour (couvre [0, w]), à N·w
+ *   avec contours (une demi-largeur à l'intérieur du contour
+ *   intérieur) ; passe de rattrapage si une bande reste découverte.
  * - passes prolongées dans les pointes le long de leur axe (couverture
  *   totale, chevauchement accepté) ;
  * - bordure de référence lue dans le polygone original ; grille ancrée
@@ -296,6 +295,7 @@ export function generateWorklines(
           const ta = tOf(pa);
           const tb = tOf(pb);
           if (ta === tb) {
+
             if (ta === t) crossings.push(sOf(pa), sOf(pb));
             continue;
           }
@@ -315,7 +315,7 @@ export function generateWorklines(
       const cs = crossingsAt(t);
       if (cs.length % 2 !== 0) cs.pop();
       for (let i = 0; i + 1 < cs.length; i += 2) {
-        if (cs[i + 1] - cs[i] >= w / 4) return true;
+        if (cs[i + 1] - cs[i] >= w / 8) return true;
       }
       return false;
     };
@@ -326,26 +326,55 @@ export function generateWorklines(
     // sommet touché) et serait sinon ignorée, laissant la première ligne
     // réelle à une pleine largeur du bord (manque en bord de parcelle).
     const firstCoveringFrom = (tEdge: number, dir: 1 | -1): number => {
-      for (let k = 0; k <= 5; k++) {
-        const t = tEdge + (dir * k * w) / 10;
+      for (let k = 0; k <= 10; k++) {
+        const t = tEdge + (dir * k * w) / 20;
         if (hasSegment(t)) return t;
       }
       return tEdge + dir * (w / 2);
     };
 
-    // Grille ancrée sur la première ligne couvrante, côté de départ.
+    // Grille ancrée sur la BORDURE DE RÉFÉRENCE (règle R2) : la bordure
+    // est parallèle aux passes, tous ses points partagent la même
+    // coordonnée tRef. Première ligne à w/2 de la bordure sans contour
+    // (bande [0, w] couverte par elle seule), à N·w avec contours (une
+    // demi-largeur à l'intérieur du contour le plus proche). Espacement
+    // ensuite strictement régulier ; le reliquat éventuel se retrouve
+    // sur le côté opposé, JAMAIS en bord de bordure de référence.
+    const tRef = tOf({ x: (a1.x + a2.x) / 2, y: (a1.y + a2.y) / 2 });
+    let cx = 0, cy = 0;
+    raw.forEach(p => { cx += p.x; cy += p.y; });
+    const tCentroid = tOf({ x: cx / raw.length, y: cy / raw.length });
+    const sigma: 1 | -1 = tCentroid >= tRef ? 1 : -1; // sens bordure → intérieur
+    const tFirst = tRef + sigma * (N === 0 ? w / 2 : N * w);
+    const gridValues: number[] = [];
+    for (let t = tFirst; sigma > 0 ? t <= tMax + 1e-9 : t >= tMin - 1e-9; t += sigma * w) {
+      gridValues.push(t);
+    }
+
+    // Passes de rattrapage : si une bande de plus d'une demi-largeur
+    // reste découverte d'un côté (forme non convexe, parcelle plus large
+    // que la grille), on ancre une ligne supplémentaire depuis la limite
+    // de coupe de ce côté — mieux vaut un léger croisement qu'un manque.
+    const nearLimit = sigma > 0 ? tMin : tMax;
+    if (gridValues.length === 0 || Math.abs(tFirst - nearLimit) > w / 2 + 1e-9) {
+      const extra = firstCoveringFrom(nearLimit, sigma);
+      if (gridValues.length === 0 || Math.abs(extra - gridValues[0]) > 1e-6) {
+        gridValues.unshift(extra);
+      }
+    }
+    const farLimit = sigma > 0 ? tMax : tMin;
+    const lastGrid = gridValues.length > 0 ? gridValues[gridValues.length - 1] : null;
+    if (lastGrid !== null && Math.abs(farLimit - lastGrid) > w / 2 + 1e-9) {
+      gridValues.push(firstCoveringFrom(farLimit, sigma > 0 ? -1 : 1));
+    }
+
+    // Ordre de parcours : depuis le côté le plus proche de la position
+    // courante (la grille, elle, reste ancrée côté bordure de référence).
     let startFromMax = false;
     if (lastEnd) {
       startFromMax = tOf(lastEnd) > (tMin + tMax) / 2;
     }
-    const tValues: number[] = [];
-    if (startFromMax) {
-      const tStart = firstCoveringFrom(tMax, -1);
-      for (let t = tStart; t >= tMin; t -= w) tValues.push(t);
-    } else {
-      const tStart = firstCoveringFrom(tMin, 1);
-      for (let t = tStart; t <= tMax; t += w) tValues.push(t);
-    }
+    const tValues: number[] = startFromMax ? [...gridValues].reverse() : gridValues;
 
     // Sens de parcours de la première ligne : depuis l'extrémité la plus
     // proche de la position courante, puis alternance (zigzag).
