@@ -16,13 +16,19 @@
  *    (orange pointillé) pour contrôle visuel par l'opérateur.
  *
  * Correctifs (retours de test) :
- * - la bordure de référence est lue dans le polygone ORIGINAL (même index
- *   que la sélection sur la carte) : le retournement d'orientation pour
- *   Clipper se fait sur des copies, il ne décale plus les index ;
- * - les allers-retours démarrent du côté de la zone le plus proche de la
- *   position courante du robot (haut ou bas), et la première ligne est
- *   parcourue depuis l'extrémité la plus proche — plus de traversée
- *   complète du polygone après les contours.
+ * - bordure de référence lue dans le polygone ORIGINAL (le retournement
+ *   d'orientation pour Clipper ne décale plus les index) ;
+ * - allers-retours démarrant du côté le plus proche de la position
+ *   courante du robot ;
+ * - grille de lignes ancrée sur le côté de DÉPART (tMax - w/2 en
+ *   descendant, ou tMin + w/2 en montant) : espacement strictement
+ *   régulier, plus de pas double de rattrapage ;
+ * - prolongement des passes dans les pointes : les lignes sont coupées
+ *   sur un polygone une largeur plus large que la zone de balayage
+ *   (jusqu'à juste avant le deuxième contour quand il y a des headlands)
+ *   — priorité à la COUVERTURE TOTALE : mieux vaut un léger chevauchement
+ *   dans les zones déjà couvertes qu'un manque dans les pointes. Les
+ *   exclusions restent soustraites (jamais de passage dans un obstacle).
  *
  * À venir (6.3b) : contour des obstacles et réordonnancement
  * côté A / côté B autour de chaque obstacle.
@@ -202,8 +208,16 @@ export function generateWorklines(
     ringSet.forEach(r => headlandLoops.push(r));
   }
 
-  /* --- 2. Zone de balayage : intérieur après headlands, moins obstacles --- */
-  let sweepRings = offsetRings([outer], -(params.headlands * w + w / 2));
+  /* --- 2. Zone de coupe des passes ---------------------------------------
+   * Couverture totale : les passes sont prolongées d'une largeur dans la
+   * couronne des headlands — elles entrent dans les pointes et les coins,
+   * quitte à recouper des zones déjà couvertes (mieux vaut croiser que
+   * manquer). Repère : 0 headland → w/2 du bord ; N headlands → jusqu'à
+   * juste avant le deuxième contour (N-1 largeurs + une demi).
+   * Les exclusions restent TOUJOURS soustraites (marge d'une demi-largeur).
+   */
+  const shrink = (Math.max(0, params.headlands - 1) * w) + w / 2;
+  let sweepRings = offsetRings([outer], -shrink);
   const exclusions = zones
     .filter(z => z.type === 'exclusion' && z.points.length >= 3)
     .map(z => ccw(z.points.map(p => toLocal(p, origin))));
@@ -257,28 +271,23 @@ export function generateWorklines(
   if (sweepRings.length === 0 || !isFinite(tMin)) {
     warnings.push('Zone de balayage vide : zone trop petite pour la largeur de travail (contours seuls).');
   } else {
-    // Lignes candidates espacées d'une largeur
-    const tValues: number[] = [];
-    for (let t = tMin + w / 2; t <= tMax; t += w) tValues.push(t);
-
-    // Démarrage du côté le plus proche de la position courante :
-    // plus de traversée complète du polygone après les contours.
+    // Grille ancrée sur le côté de DÉPART : espacement strictement
+    // régulier, pas de pas double de rattrapage.
     let startFromMax = false;
     if (lastEnd) {
       startFromMax = tOf(lastEnd) > (tMin + tMax) / 2;
     }
+    const tValues: number[] = [];
     if (startFromMax) {
-      tValues.reverse();
-      // recentre la première ligne côté tMax
-      tValues[0] = tMax - w / 2;
+      for (let t = tMax - w / 2; t >= tMin + w / 2; t -= w) tValues.push(t);
+    } else {
+      for (let t = tMin + w / 2; t <= tMax - w / 2; t += w) tValues.push(t);
     }
 
     // Sens de parcours de la première ligne : depuis l'extrémité la plus
     // proche de la position courante, puis alternance (zigzag).
     let forward = true;
     if (lastEnd && tValues.length > 0) {
-      const t0 = tValues[0];
-      // extrémités de la première ligne (approximation par le polygone)
       let sMin = Infinity;
       let sMax = -Infinity;
       sweepRings.forEach(r => r.forEach(p => {
