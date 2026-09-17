@@ -573,6 +573,26 @@ export function generateWorklines(
       }
       return { sMin, sMax };
     });
+    // Étendue t (transversale) de chaque obstacle : une pièce n'est
+    // coupée par l'obstacle que si sa RANGÉE traverse cette étendue —
+    // les lignes pleines qui passent À CÔTÉ de l'obstacle (leur
+    // extrémité touche pourtant l'évidement de la zone de balayage
+    // autour de l'obstacle) ne doivent être ni colorées ni prises pour
+    // déclencheur du contour.
+    const ringTExtents = obstacles.map(o => {
+      let tMin = Infinity;
+      let tMax = -Infinity;
+      for (const p of o) {
+        const tv = tOf(p);
+        if (tv < tMin) tMin = tv;
+        if (tv > tMax) tMax = tv;
+      }
+      return { tMin, tMax };
+    });
+    const rowCrosses = (seg: Seg, i: number): boolean => {
+      const te = ringTExtents[i];
+      return seg.t >= te.tMin - 1e-6 && seg.t <= te.tMax + 1e-6;
+    };
     const sideOfSeg = (seg: Seg, i: number): number | null => {
       const ex = ringExtents[i];
       if (seg.b <= ex.sMin) return 0;
@@ -624,6 +644,7 @@ export function generateWorklines(
       const pb = at(seg.t, seg.b);
       for (let i = 0; i < obstacles.length; i++) {
         const rings = [obstacles[i], ...loopsOf(i)];
+        if (!rowCrosses(seg, i)) continue;
         if (onAnyRing(pa, rings) || onAnyRing(pb, rings)) {
           const side = sideOfSeg(seg, i);
           if (side !== null) return side;
@@ -667,7 +688,7 @@ export function generateWorklines(
           const qa = at(s.t, s.a);
           const qb = at(s.t, s.b);
           return obstacles.every((o, i) =>
-            contoured.has(o) ||
+            contoured.has(o) || !rowCrosses(s, i) ||
             (!onAnyRing(qa, [o, ...loopsOf(i)]) && !onAnyRing(qb, [o, ...loopsOf(i)])));
         });
         if (untouched.length > 0) candidates = untouched;
@@ -701,6 +722,7 @@ export function generateWorklines(
         for (let i = 0; i < obstacles.length; i++) {
           if (contoured.has(obstacles[i])) continue;
           const rings = [obstacles[i], ...loopsOf(i)];
+          if (!rowCrosses(bestSeg, i)) continue;
           if (onAnyRing(pa, rings) || onAnyRing(pb, rings)) {
             contoured.add(obstacles[i]);
             emitObstacleContours(i);
