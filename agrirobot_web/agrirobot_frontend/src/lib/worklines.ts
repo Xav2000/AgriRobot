@@ -26,8 +26,8 @@
  *   ligne VALIDE sur la limite (les arêtes parallèles confondues comptent
  *   comme croisements — sinon la première ligne était sautée et laissait
  *   un vide d'un demi-passage le long de la bordure de référence) :
- *   ligne à w/2 du bord sans contour (couvre [0, w]), à N·w avec
- *   contours (une demi-largeur à l'intérieur du contour intérieur).
+ *   à w/2 du bord sans contour (couvre [0, w]), à N·w avec contours
+ *   (une demi-largeur à l'intérieur du contour intérieur).
  * - passes prolongées dans les pointes le long de leur axe (couverture
  *   totale, chevauchement accepté) ;
  * - bordure de référence lue dans le polygone original ; grille ancrée
@@ -40,8 +40,7 @@
  * Repère : conversion locale en mètres avec DEG_PER_METER = 1e-5,
  * identique à MapView et au nœud ROS (agrirobot_node.py).
  */
-impor
-t ClipperLib from 'clipper-lib';
+import ClipperLib from 'clipper-lib';
 import type { WorklinesParams } from '../context/WorklinesContext';
 import type { Zone } from '../context/ZonesContext';
 
@@ -102,8 +101,7 @@ const signedArea = (ring: Pt[]): number => {
 const ccw = (ring: Pt[]): Pt[] => (signedArea(ring) < 0 ? [...ring].reverse() : ring);
 
 /** Test point dans polygone (règle de parité). */
-const pointInRing = (p: Pt, ring: 
-Pt[]): boolean => {
+const pointInRing = (p: Pt, ring: Pt[]): boolean => {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const a = ring[i];
@@ -153,8 +151,7 @@ const difference = (subject: Pt[][], clip: Pt[][]): Pt[][] => {
   return fromClipper(solution);
 };
 
-/* ---------------------------------------------------------
---------- */
+/* ------------------------------------------------------------------ */
 /* Algorithme principal                                                */
 /* ------------------------------------------------------------------ */
 
@@ -203,8 +200,7 @@ export function generateWorklines(
   const d: Pt = { x: (a2.x - a1.x) / edgeLen, y: (a2.y - a1.y) / edgeLen }; // direction des passes
   const nv: Pt = { x: -d.y, y: d.x };                                      // progression
 
-  /* --- 1. Contours i
-ntérieurs (headlands) ------------------------------
+  /* --- 1. Contours intérieurs (headlands) ------------------------------
    * R2 : la lame couvre w → premier contour à w/2 du bord (bande [0, w]
    * couverte par lui seul), suivants espacés d'une largeur.
    */
@@ -249,8 +245,7 @@ ntérieurs (headlands) ------------------------------
 
   /* --- 3. Assemblage ordonné du parcours --- */
   const elems: Elem[] = [];
-  let lastEnd: Pt | null = params.entryPoint ? toLocal(params
-.entryPoint, origin) : null;
+  let lastEnd: Pt | null = params.entryPoint ? toLocal(params.entryPoint, origin) : null;
 
   const addElem = (kind: WorklineKind, pts: Pt[], closed: boolean) => {
     if (pts.length < 2) return;
@@ -306,8 +301,7 @@ ntérieurs (headlands) ------------------------------
 
     // Sens de parcours de la première ligne : depuis l'extrémité la plus
     // proche de la position courante, puis alternance (zigzag).
- 
-   let forward = true;
+    let forward = true;
     if (lastEnd && tValues.length > 0) {
       let sMin = Infinity;
       let sMax = -Infinity;
@@ -380,8 +374,7 @@ ntérieurs (headlands) ------------------------------
   let trans = 0;
   elems.forEach(el => {
     if (el.kind === 'transition') trans++;
-    else if (el.kind === 'sw
-eep') sweeps++;
+    else if (el.kind === 'sweep') sweeps++;
     else if (el.kind === 'headland') loops++;
     for (let i = 1; i < el.pts.length; i++) total += dist(el.pts[i - 1], el.pts[i]);
   });
