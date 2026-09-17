@@ -12,20 +12,21 @@
  *    largeur, découpés par les zones d'exclusion (marge d'une demi-largeur) ;
  * 3. transitions droites entre tracés consécutifs (orange pointillé).
  *
- * Géométrie validée (retours de test) :
- * - la lame couvre w de large → le PREMIER contour est à w/2 du bord
- *   (bande [0, w] couverte par ce contour seul) ; contours suivants
- *   espacés d'une largeur : w/2, 1,5w, 2,5w…
- * - première passe d'allers-retours à N·w du bord : une demi-largeur à
- *   l'intérieur du contour le plus INTÉRIEUR (le premier rencontré par
- *   la tondeuse en venant du centre).
- * - les allers-retours s'arrêtent juste APRÈS avoir franchi le premier
- *   contour rencontré (le plus intérieur, à (N-0,5)·w) : ils le
- *   dépassent d'une demi-largeur — coupe à (N-1)·w du bord. Ils ne
- *   recoupent PAS les contours plus extérieurs. Sans contour : coupe au
- *   bord même.
- * - passes prolongées dans les pointes (chevauchement accepté : mieux
- *   vaut croiser que manquer) ;
+ * RÈGLES FIXÉES (retours de test) :
+ * - R1 — la tondeuse ne sort JAMAIS du polygone : les extrémités des
+ *   passes (demi-tours) sont toujours en retrait d'au moins une
+ *   demi-largeur du bord. Règle de sécurité : servira plus tard à
+ *   désactiver la lame / arrêter le robot en cas de sortie.
+ * - R2 — la lame couvre w : premier contour à w/2 du bord (bande [0, w]
+ *   couverte par lui seul), suivants espacés d'une largeur (w/2, 1,5w…).
+ * - R3 — les allers-retours s'arrêtent SUR la première ligne de contour
+ *   rencontrée (la plus intérieure, à (N-0,5)·w du bord), sans la
+ *   dépasser. Sans contour : coupe à w/2 du bord (R1).
+ * - La grille des passes démarre pile sur la limite de coupe : première
+ *   ligne à w/2 du bord sans contour (couvre [0, w]), à N·w avec
+ *   contours (une demi-largeur à l'intérieur du contour intérieur).
+ * - passes prolongées dans les pointes le long de leur axe (couverture
+ *   totale, chevauchement accepté) ;
  * - bordure de référence lue dans le polygone original ; grille ancrée
  *   sur le côté de départ (espacement régulier) ; démarrage du côté le
  *   plus proche de la position courante.
@@ -197,14 +198,12 @@ export function generateWorklines(
   const nv: Pt = { x: -d.y, y: d.x };                                      // progression
 
   /* --- 1. Contours intérieurs (headlands) ------------------------------
-   * La lame couvre w : le premier contour est à w/2 du bord (la bande
-   * [0, w] est couverte par lui seul — pas de double décalage), les
-   * suivants espacés d'une largeur : w/2, 1,5w, 2,5w…
+   * R2 : la lame couvre w → premier contour à w/2 du bord (bande [0, w]
+   * couverte par lui seul), suivants espacés d'une largeur.
    */
   const headlandLoops: Pt[][] = [];
   let ringSet: Pt[][] = [outer];
   if (N > 0) {
-    // Premier contour à w/2, puis pas d'une largeur
     ringSet = offsetRings(ringSet, -w / 2);
     if (ringSet.length === 0) {
       warnings.push('Zone trop petite pour un contour intérieur.');
@@ -222,17 +221,14 @@ export function generateWorklines(
   }
 
   /* --- 2. Zone de coupe des passes --------------------------------------
-   * Les allers-retours s'arrêtent juste APRÈS le premier contour
-   * rencontré (le plus intérieur, à (N-0,5)·w du bord) : ils le
-   * dépassent d'une demi-largeur → coupe à (N-1)·w du bord. Ils ne
-   * recoupent pas les contours plus extérieurs.
-   * Première passe : N·w du bord — une demi-largeur à l'intérieur du
-   * contour intérieur. Sans headland : coupe au bord, première passe
-   * à w/2 (demi-tour à l'intérieur).
+   * R1 : la tondeuse ne sort jamais du polygone → coupe TOUJOURS en
+   * retrait : w/2 du bord sans contour (demi-tour intérieur), sur le
+   * contour intérieur ((N-0,5)·w) avec contours (R3 : les zigzags
+   * s'arrêtent SUR la première ligne de contour rencontrée).
+   * La grille démarre pile sur cette limite (première ligne dessus).
    * Les exclusions restent TOUJOURS soustraites (marge d'une demi-largeur).
    */
-  const shrink = N === 0 ? 0 : (N - 1) * w;
-  const firstPassFromBorder = N * w;
+  const shrink = N === 0 ? w / 2 : (N - 0.5) * w;
   let sweepRings = offsetRings([outer], -shrink);
   const exclusions = zones
     .filter(z => z.type === 'exclusion' && z.points.length >= 3)
@@ -287,22 +283,17 @@ export function generateWorklines(
   if (sweepRings.length === 0 || !isFinite(tMin)) {
     warnings.push('Zone de balayage vide : zone trop petite pour la largeur de travail (contours seuls).');
   } else {
-    // Première/dernière passe : firstPassFromBorder du bord de la zone,
-    // converti en distance depuis le bord de coupe (tMin/tMax).
-    const firstFromCut = firstPassFromBorder - shrink;
-    const tLow = tMin + firstFromCut;
-    const tHigh = tMax - firstFromCut;
-
-    // Grille ancrée sur le côté de DÉPART (espacement strictement régulier).
+    // Grille démarrant pile sur la limite de coupe (première ligne dessus),
+    // ancrée sur le côté de départ (espacement strictement régulier).
     let startFromMax = false;
     if (lastEnd) {
       startFromMax = tOf(lastEnd) > (tMin + tMax) / 2;
     }
     const tValues: number[] = [];
     if (startFromMax) {
-      for (let t = tHigh; t >= tLow; t -= w) tValues.push(t);
+      for (let t = tMax; t >= tMin; t -= w) tValues.push(t);
     } else {
-      for (let t = tLow; t <= tHigh; t += w) tValues.push(t);
+      for (let t = tMin; t <= tMax; t += w) tValues.push(t);
     }
 
     // Sens de parcours de la première ligne : depuis l'extrémité la plus
