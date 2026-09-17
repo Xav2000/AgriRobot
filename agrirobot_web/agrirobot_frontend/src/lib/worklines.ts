@@ -23,6 +23,9 @@
  *   rencontrée (la plus intérieure, à (N-0,5)·w du bord), sans la
  *   dépasser. Sans contour : coupe à w/2 du bord (R1).
  * - La grille des passes démarre pile sur la limite de coupe : première
+ *   ligne VALIDE sur la limite (les arêtes parallèles confondues comptent
+ *   comme croisements — sinon la première ligne était sautée et laissait
+ *   un vide d'un demi-passage le long de la bordure de référence) :
  *   ligne à w/2 du bord sans contour (couvre [0, w]), à N·w avec
  *   contours (une demi-largeur à l'intérieur du contour intérieur).
  * - passes prolongées dans les pointes le long de leur axe (couverture
@@ -37,7 +40,8 @@
  * Repère : conversion locale en mètres avec DEG_PER_METER = 1e-5,
  * identique à MapView et au nœud ROS (agrirobot_node.py).
  */
-import ClipperLib from 'clipper-lib';
+impor
+t ClipperLib from 'clipper-lib';
 import type { WorklinesParams } from '../context/WorklinesContext';
 import type { Zone } from '../context/ZonesContext';
 
@@ -98,7 +102,8 @@ const signedArea = (ring: Pt[]): number => {
 const ccw = (ring: Pt[]): Pt[] => (signedArea(ring) < 0 ? [...ring].reverse() : ring);
 
 /** Test point dans polygone (règle de parité). */
-const pointInRing = (p: Pt, ring: Pt[]): boolean => {
+const pointInRing = (p: Pt, ring: 
+Pt[]): boolean => {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const a = ring[i];
@@ -148,7 +153,8 @@ const difference = (subject: Pt[][], clip: Pt[][]): Pt[][] => {
   return fromClipper(solution);
 };
 
-/* ------------------------------------------------------------------ */
+/* ---------------------------------------------------------
+--------- */
 /* Algorithme principal                                                */
 /* ------------------------------------------------------------------ */
 
@@ -197,7 +203,8 @@ export function generateWorklines(
   const d: Pt = { x: (a2.x - a1.x) / edgeLen, y: (a2.y - a1.y) / edgeLen }; // direction des passes
   const nv: Pt = { x: -d.y, y: d.x };                                      // progression
 
-  /* --- 1. Contours intérieurs (headlands) ------------------------------
+  /* --- 1. Contours i
+ntérieurs (headlands) ------------------------------
    * R2 : la lame couvre w → premier contour à w/2 du bord (bande [0, w]
    * couverte par lui seul), suivants espacés d'une largeur.
    */
@@ -242,7 +249,8 @@ export function generateWorklines(
 
   /* --- 3. Assemblage ordonné du parcours --- */
   const elems: Elem[] = [];
-  let lastEnd: Pt | null = params.entryPoint ? toLocal(params.entryPoint, origin) : null;
+  let lastEnd: Pt | null = params.entryPoint ? toLocal(params
+.entryPoint, origin) : null;
 
   const addElem = (kind: WorklineKind, pts: Pt[], closed: boolean) => {
     if (pts.length < 2) return;
@@ -298,7 +306,8 @@ export function generateWorklines(
 
     // Sens de parcours de la première ligne : depuis l'extrémité la plus
     // proche de la position courante, puis alternance (zigzag).
-    let forward = true;
+ 
+   let forward = true;
     if (lastEnd && tValues.length > 0) {
       let sMin = Infinity;
       let sMax = -Infinity;
@@ -311,7 +320,12 @@ export function generateWorklines(
     }
 
     for (const t of tValues) {
-      // Croisements de la ligne t avec tous les anneaux (zone + trous)
+      // Croisements de la ligne t avec tous les anneaux (zone + trous).
+      // Cas particulier : arête PARALLÈLE confondue avec la ligne (c'est le
+      // cas de la première/dernière ligne, ancrée sur la limite de coupe) —
+      // ses deux extrémités comptent comme croisements, sinon la ligne
+      // serait considérée vide et sautée (vide d'un demi-passage en bord
+      // de parcelle).
       const crossings: number[] = [];
       for (const r of sweepRings) {
         for (let i = 0; i < r.length; i++) {
@@ -319,7 +333,12 @@ export function generateWorklines(
           const pb = r[(i + 1) % r.length];
           const ta = tOf(pa);
           const tb = tOf(pb);
-          if (ta === tb) continue;
+          if (ta === tb) {
+            if (ta === t) {
+              crossings.push(sOf(pa), sOf(pb));
+            }
+            continue;
+          }
           if ((ta < t && tb > t) || (ta > t && tb < t)) {
             const u = (t - ta) / (tb - ta);
             crossings.push(sOf(pa) + u * (sOf(pb) - sOf(pa)));
@@ -327,13 +346,15 @@ export function generateWorklines(
         }
       }
       crossings.sort((x, y) => x - y);
-      if (crossings.length % 2 !== 0) crossings.pop(); // tangence : on ignore
-      if (crossings.length < 2) continue;
+      // Dédoublonnage : extrémités partagées entre arêtes adjacentes
+      const uniq = crossings.filter((s, i) => i === 0 || Math.abs(s - crossings[i - 1]) > 1e-6);
+      if (uniq.length % 2 !== 0) uniq.pop(); // tangence : on ignore
+      if (uniq.length < 2) continue;
 
       // Segments de la ligne, appariés par parité
       const segs: Array<[number, number]> = [];
-      for (let i = 0; i + 1 < crossings.length; i += 2) {
-        segs.push([crossings[i], crossings[i + 1]]);
+      for (let i = 0; i + 1 < uniq.length; i += 2) {
+        segs.push([uniq[i], uniq[i + 1]]);
       }
       // Zigzag : on parcourt la ligne dans un sens, la suivante dans l'autre
       if (!forward) segs.reverse();
@@ -359,7 +380,8 @@ export function generateWorklines(
   let trans = 0;
   elems.forEach(el => {
     if (el.kind === 'transition') trans++;
-    else if (el.kind === 'sweep') sweeps++;
+    else if (el.kind === 'sw
+eep') sweeps++;
     else if (el.kind === 'headland') loops++;
     for (let i = 1; i < el.pts.length; i++) total += dist(el.pts[i - 1], el.pts[i]);
   });
