@@ -22,12 +22,11 @@
  * - R3 — les allers-retours s'arrêtent SUR la première ligne de contour
  *   rencontrée (la plus intérieure, à (N-0,5)·w du bord), sans la
  *   dépasser. Sans contour : coupe à w/2 du bord (R1).
- * - La grille des passes démarre pile sur la limite de coupe : première
- *   ligne VALIDE sur la limite (les arêtes parallèles confondues comptent
- *   comme croisements — sinon la première ligne était sautée et laissait
- *   un vide d'un demi-passage le long de la bordure de référence) :
- *   à w/2 du bord sans contour (couvre [0, w]), à N·w avec contours
- *   (une demi-largeur à l'intérieur du contour intérieur).
+ * - La grille des passes démarre sur la PREMIÈRE LIGNE COUVRANTE depuis
+ *   la limite de coupe (recherche par petits pas de w/10, au plus une
+ *   demi-largeur) : la limite exacte est souvent tangente au polygone
+ *   (un seul sommet touché) et serait ignorée, laissant la première
+ *   ligne réelle à une pleine largeur du bord (manque en parcelle).
  * - passes prolongées dans les pointes le long de leur axe (couverture
  *   totale, chevauchement accepté) ;
  * - bordure de référence lue dans le polygone original ; grille ancrée
@@ -226,9 +225,8 @@ export function generateWorklines(
   /* --- 2. Zone de coupe des passes --------------------------------------
    * R1 : la tondeuse ne sort jamais du polygone → coupe TOUJOURS en
    * retrait : w/2 du bord sans contour (demi-tour intérieur), sur le
-   * contour intérieur ((N-0,5)·w) avec contours (R3 : les zigzags
-   * s'arrêtent SUR la première ligne de contour rencontrée).
-   * La grille démarre pile sur cette limite (première ligne dessus).
+   * contour intérieur ((N-0,5)·w) avec contours (R3).
+   * La grille démarre sur la première ligne COUVRANTE depuis cette limite.
    * Les exclusions restent TOUJOURS soustraites (marge d'une demi-largeur).
    */
   const shrink = N === 0 ? w / 2 : (N - 0.5) * w;
@@ -286,17 +284,67 @@ export function generateWorklines(
   if (sweepRings.length === 0 || !isFinite(tMin)) {
     warnings.push('Zone de balayage vide : zone trop petite pour la largeur de travail (contours seuls).');
   } else {
-    // Grille démarrant pile sur la limite de coupe (première ligne dessus),
-    // ancrée sur le côté de départ (espacement strictement régulier).
+    // Croisements d'une ligne t avec tous les anneaux (zone + trous).
+    // Cas particulier : arête PARALLÈLE confondue avec la ligne — ses deux
+    // extrémités comptent comme croisements.
+    const crossingsAt = (t: number): number[] => {
+      const crossings: number[] = [];
+      for (const r of sweepRings) {
+        for (let i = 0; i < r.length; i++) {
+          const pa = r[i];
+          const pb = r[(i + 1) % r.length];
+          const ta = tOf(pa);
+          const tb = tOf(pb);
+          if (ta === tb) {
+            if (ta === t) crossings.push(sOf(pa), sOf(pb));
+            continue;
+          }
+          if ((ta < t && tb > t) || (ta > t && tb < t)) {
+            const u = (t - ta) / (tb - ta);
+            crossings.push(sOf(pa) + u * (sOf(pb) - sOf(pa)));
+          }
+        }
+      }
+      crossings.sort((x, y) => x - y);
+      // Dédoublonnage : extrémités partagées entre arêtes adjacentes
+      return crossings.filter((s, i) => i === 0 || Math.abs(s - crossings[i - 1]) > 1e-6);
+    };
+
+    /** La ligne t porte-t-elle un vrai segment exploitable ? */
+    const hasSegment = (t: number): boolean => {
+      const cs = crossingsAt(t);
+      if (cs.length % 2 !== 0) cs.pop();
+      for (let i = 0; i + 1 < cs.length; i += 2) {
+        if (cs[i + 1] - cs[i] >= w / 4) return true;
+      }
+      return false;
+    };
+
+    // Première ligne COUVRANTE : depuis la limite de coupe, on avance par
+    // petits pas (w/10, au plus une demi-largeur) jusqu'à trouver une ligne
+    // avec un vrai segment — la limite exacte est souvent tangente (un seul
+    // sommet touché) et serait sinon ignorée, laissant la première ligne
+    // réelle à une pleine largeur du bord (manque en bord de parcelle).
+    const firstCoveringFrom = (tEdge: number, dir: 1 | -1): number => {
+      for (let k = 0; k <= 5; k++) {
+        const t = tEdge + (dir * k * w) / 10;
+        if (hasSegment(t)) return t;
+      }
+      return tEdge + dir * (w / 2);
+    };
+
+    // Grille ancrée sur la première ligne couvrante, côté de départ.
     let startFromMax = false;
     if (lastEnd) {
       startFromMax = tOf(lastEnd) > (tMin + tMax) / 2;
     }
     const tValues: number[] = [];
     if (startFromMax) {
-      for (let t = tMax; t >= tMin; t -= w) tValues.push(t);
+      const tStart = firstCoveringFrom(tMax, -1);
+      for (let t = tStart; t >= tMin; t -= w) tValues.push(t);
     } else {
-      for (let t = tMin; t <= tMax; t += w) tValues.push(t);
+      const tStart = firstCoveringFrom(tMin, 1);
+      for (let t = tStart; t <= tMax; t += w) tValues.push(t);
     }
 
     // Sens de parcours de la première ligne : depuis l'extrémité la plus
@@ -314,34 +362,7 @@ export function generateWorklines(
     }
 
     for (const t of tValues) {
-      // Croisements de la ligne t avec tous les anneaux (zone + trous).
-      // Cas particulier : arête PARALLÈLE confondue avec la ligne (c'est le
-      // cas de la première/dernière ligne, ancrée sur la limite de coupe) —
-      // ses deux extrémités comptent comme croisements, sinon la ligne
-      // serait considérée vide et sautée (vide d'un demi-passage en bord
-      // de parcelle).
-      const crossings: number[] = [];
-      for (const r of sweepRings) {
-        for (let i = 0; i < r.length; i++) {
-          const pa = r[i];
-          const pb = r[(i + 1) % r.length];
-          const ta = tOf(pa);
-          const tb = tOf(pb);
-          if (ta === tb) {
-            if (ta === t) {
-              crossings.push(sOf(pa), sOf(pb));
-            }
-            continue;
-          }
-          if ((ta < t && tb > t) || (ta > t && tb < t)) {
-            const u = (t - ta) / (tb - ta);
-            crossings.push(sOf(pa) + u * (sOf(pb) - sOf(pa)));
-          }
-        }
-      }
-      crossings.sort((x, y) => x - y);
-      // Dédoublonnage : extrémités partagées entre arêtes adjacentes
-      const uniq = crossings.filter((s, i) => i === 0 || Math.abs(s - crossings[i - 1]) > 1e-6);
+      const uniq = crossingsAt(t);
       if (uniq.length % 2 !== 0) uniq.pop(); // tangence : on ignore
       if (uniq.length < 2) continue;
 
