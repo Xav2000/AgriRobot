@@ -14,11 +14,16 @@
  *
  * Géométrie validée (retours de test) :
  * - la lame couvre w de large → le PREMIER contour est à w/2 du bord
- *   (la bande [0, w] est couverte par ce contour seul, pas de double
- *   décalage) ; contours suivants espacés d'une largeur : w/2, 1,5w, 2,5w…
+ *   (bande [0, w] couverte par ce contour seul) ; contours suivants
+ *   espacés d'une largeur : w/2, 1,5w, 2,5w…
  * - première passe d'allers-retours à N·w du bord : une demi-largeur à
- *   l'intérieur du dernier contour (recouvrement w/2, couverture totale).
- *   Sans contour : w/2 du bord — la tondeuse fait demi-tour à l'intérieur.
+ *   l'intérieur du contour le plus INTÉRIEUR (le premier rencontré par
+ *   la tondeuse en venant du centre).
+ * - les allers-retours s'arrêtent juste APRÈS avoir franchi le premier
+ *   contour rencontré (le plus intérieur, à (N-0,5)·w) : ils le
+ *   dépassent d'une demi-largeur — coupe à (N-1)·w du bord. Ils ne
+ *   recoupent PAS les contours plus extérieurs. Sans contour : coupe au
+ *   bord même.
  * - passes prolongées dans les pointes (chevauchement accepté : mieux
  *   vaut croiser que manquer) ;
  * - bordure de référence lue dans le polygone original ; grille ancrée
@@ -217,16 +222,16 @@ export function generateWorklines(
   }
 
   /* --- 2. Zone de coupe des passes --------------------------------------
-   * Couverture totale : passes prolongées dans la couronne des headlands
-   * (elles entrent dans les pointes), jusqu'à juste avant le deuxième
-   * contour (transitions visibles dessus).
-   * - sans headland : coupe au bord même ;
-   * - avec headlands : coupe à w du bord (2e contour à 1,5w, moins w/2).
+   * Les allers-retours s'arrêtent juste APRÈS le premier contour
+   * rencontré (le plus intérieur, à (N-0,5)·w du bord) : ils le
+   * dépassent d'une demi-largeur → coupe à (N-1)·w du bord. Ils ne
+   * recoupent pas les contours plus extérieurs.
    * Première passe : N·w du bord — une demi-largeur à l'intérieur du
-   * dernier contour (à (N - 0,5)·w) ; sans headland : w/2 du bord.
+   * contour intérieur. Sans headland : coupe au bord, première passe
+   * à w/2 (demi-tour à l'intérieur).
    * Les exclusions restent TOUJOURS soustraites (marge d'une demi-largeur).
    */
-  const shrink = N === 0 ? 0 : w;
+  const shrink = N === 0 ? 0 : (N - 1) * w;
   const firstPassFromBorder = N * w;
   let sweepRings = offsetRings([outer], -shrink);
   const exclusions = zones
