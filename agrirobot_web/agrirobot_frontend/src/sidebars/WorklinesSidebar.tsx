@@ -222,7 +222,7 @@ const WorklinesSidebar: React.FC = () => {
               <Alert key={i} severity="warning" sx={{ mt: 1 }}>{warn}</Alert>
             ))}
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-              Sur la carte : blanc = passages et contours, orange pointillé = transitions, rouge = contour d'obstacle.
+              Sur la carte : blanc = passages avant le premier obstacle, bleu = 1er côté d'un obstacle, violet = 2e côté ; orange pointillé = transitions, rouge pointillé = contour d'obstacle.
             </Typography>
             <Button size="small" onClick={clearResult} sx={{ mt: 0.5 }}>
               Effacer les lignes
