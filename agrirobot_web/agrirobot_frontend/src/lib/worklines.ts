@@ -345,17 +345,7 @@ export function generateWorklines(
     raw.forEach(p => { cx += p.x; cy += p.y; });
     const tCentroid = tOf({ x: cx / raw.length, y: cy / raw.length });
     const sigma: 1 | -1 = tCentroid >= tRef ? 1 : -1; // sens bordure → intérieur
-    const tFirstIdeal = tRef + sigma * (N === 0 ? w / 2 : N * w);
-    // La position idéale repose PILE sur la limite de coupe (le retrait
-    // de la zone de balayage vaut exactement w/2 ou N·w) : cas dégénéré
-    // de tangence où, selon l'arrondi millimétrique de Clipper, la ligne
-    // peut tomber juste HORS de la zone (zéro croisement) et disparaître
-    // — laissant une bande vide en bord pour certaines largeurs seulement
-    // (constaté avec 0,50 m ; 0,45 et 0,55 passaient). On avance donc par
-    // petits pas vers l'intérieur jusqu'à la première ligne réellement
-    // couvrante : en pratique quelques millimètres, négligeable pour la
-    // couverture (chevauchement préféré au manque).
-    const tFirst = firstCoveringFrom(tFirstIdeal, sigma);
+    const tFirst = tRef + sigma * (N === 0 ? w / 2 : N * w);
     const gridValues: number[] = [];
     for (let t = tFirst; sigma > 0 ? t <= tMax + 1e-9 : t >= tMin - 1e-9; t += sigma * w) {
       gridValues.push(t);
@@ -384,7 +374,13 @@ export function generateWorklines(
     if (lastEnd) {
       startFromMax = tOf(lastEnd) > (tMin + tMax) / 2;
     }
-    const tValues: number[] = startFromMax ? [...gridValues].reverse() : gridValues;
+    // gridValues est construite DEPUIS la bordure de référence : son sens
+    // dépend du côté de la bordure (croissante si bordure côté tMin,
+    // décroissante si côté tMax). On ne l'inverse que si l'extrémité où
+    // elle commence n'est PAS le côté de départ voulu — sinon le parcours
+    // démarrait à l'opposé du point d'entrée (bordure du côté tMax).
+    const gridStartsAtMax = gridValues[gridValues.length - 1] < gridValues[0];
+    const tValues: number[] = (startFromMax !== gridStartsAtMax) ? [...gridValues].reverse() : gridValues;
 
     // Sens de parcours de la première ligne : depuis l'extrémité la plus
     // proche de la position courante, puis alternance (zigzag).
