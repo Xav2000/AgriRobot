@@ -622,12 +622,37 @@ export function generateWorklines(
         })
         .reverse();
     const emitObstacleContours = (i: number): void => {
+      // Point d'attaque du contour choisi intelligemment : la boucle
+      // étant fermée, elle REVIENT à son point d'entrée — on minimise
+      // donc le trajet TOTAL : distance(position courante → sommet) +
+      // distance(sommet → extrémité la plus proche des pièces
+      // raccourcies restantes de cet obstacle). Le contour est ainsi
+      // attaqué au plus près de la première ligne colorée à travailler
+      // (et terminé au même endroit), au lieu du seul sommet le plus
+      // proche de la position courante.
+      const targets: Pt[] = [];
+      for (const s of allSegs) {
+        if (s.done || !rowCrosses(s, i)) continue;
+        targets.push(at(s.t, s.a), at(s.t, s.b));
+      }
+      const score = (v: Pt): number => {
+        const dIn = lastEnd ? dist(lastEnd, v) : 0;
+        let dOut = 0;
+        if (targets.length > 0) {
+          dOut = Infinity;
+          for (const e of targets) {
+            const dd = dist(v, e);
+            if (dd < dOut) dOut = dd;
+          }
+        }
+        return dIn + dOut;
+      };
       for (const L of loopsOf(i)) {
         let best = 0;
-        let bestD = Infinity;
+        let bestScore = Infinity;
         L.forEach((p, k) => {
-          const dd = lastEnd ? dist(lastEnd, p) : 0;
-          if (dd < bestD) { bestD = dd; best = k; }
+          const sc = score(p);
+          if (sc < bestScore) { bestScore = sc; best = k; }
         });
         addElem('obstacle', L.slice(best).concat(L.slice(0, best)), true);
       }
