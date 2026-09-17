@@ -744,7 +744,17 @@ export function generateWorklines(
           }
           nearestIsColored = sNear != null && !untouched.includes(sNear);
         }
-        if (!inBand && !nearestIsColored && untouched.length > 0) candidates = untouched;
+        // ... ni tant qu'un obstacle EN COURS (déjà contourné) a
+        // encore des pièces colorées à faire : après le 1er côté, le
+        // robot suit le tour de l'obstacle pour attaquer le 2e côté
+        // immédiatement, au lieu de repartir sur les lignes blanches
+        // et de revenir plus tard.
+        const coloredLeft = candidates.some(s =>
+          !untouched.includes(s) &&
+          obstacles.some((o, i) => contoured.has(o) && rowCrosses(s, i)));
+        if (!inBand && !nearestIsColored && !coloredLeft && untouched.length > 0) {
+          candidates = untouched;
+        }
       // Segment dont l'extrémité la plus proche de la position courante
       // est minimale (boustrophédon naturel, U-turn au plus près).
       let bestSeg: Seg | null = null;
