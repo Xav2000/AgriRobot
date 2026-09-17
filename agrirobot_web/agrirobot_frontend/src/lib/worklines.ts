@@ -39,7 +39,9 @@
  *
  * 6.3b : contour des obstacles (boucle à la marge de sécurité au premier
  * franchissement), parcours par côtés (le côté atteignable est terminé
- * avant de changer), transitions contournantes.
+ * avant de changer), transitions contournantes. Avec contours d'obstacle
+ * activés, les allers-retours s'arrêtent sur le contour d'obstacle le
+ * plus EXTÉRIEUR (miroir de R3) — jamais entre deux contours rouges.
  *
  * Repère : conversion locale en mètres avec DEG_PER_METER = 1e-5,
  * identique à MapView et au nœud ROS (agrirobot_node.py).
@@ -340,7 +342,21 @@ export function generateWorklines(
   const shrink = N === 0 ? w / 2 : (N - 0.5) * w;
   let sweepRings = offsetRings([outer], -shrink);
   if (obstacles.length > 0 && sweepRings.length > 0) {
-    sweepRings = difference(sweepRings, obstacles);
+    // Coupe des passes autour des obstacles — miroir de R3 : quand les
+    // contours d'obstacle sont activés, les allers-retours s'arrêtent SUR
+    // le PREMIER contour rencontré (le plus EXTÉRIEUR, à marge+(N-1)·w),
+    // sans passer entre les contours rouges. Sinon : coupe à la marge
+    // (le robot reste lui-même à la distance de sécurité S1).
+    let sweepObstacles = obstacles;
+    if (params.outlineObstacles && N > 0) {
+      const cut = margin + (N - 1) * w;
+      sweepObstacles = [];
+      exclusions.forEach(r =>
+        offsetRings([r], cut).forEach(b => { if (b.length >= 3) sweepObstacles.push(b); })
+      );
+      if (sweepObstacles.length === 0) sweepObstacles = obstacles;
+    }
+    sweepRings = difference(sweepRings, sweepObstacles);
   }
 
   /* --- 3. Assemblage ordonné du parcours --- */
