@@ -76,6 +76,7 @@ export interface WorklinesResult {
     headlandLoops: number;
     sweepPasses: number;
     transitions: number;
+    obstacleContours: number;
   };
   warnings: string[];
 }
@@ -635,10 +636,12 @@ export function generateWorklines(
   let loops = 0;
   let sweeps = 0;
   let trans = 0;
+  let obst = 0;
   elems.forEach(el => {
     if (el.kind === 'transition') trans++;
     else if (el.kind === 'sweep') sweeps++;
     else if (el.kind === 'headland') loops++;
+    else if (el.kind === 'obstacle') obst++;
     for (let i = 1; i < el.pts.length; i++) total += dist(el.pts[i - 1], el.pts[i]);
   });
 
@@ -649,6 +652,7 @@ export function generateWorklines(
       headlandLoops: loops,
       sweepPasses: sweeps,
       transitions: trans,
+      obstacleContours: obst,
     },
     warnings,
   };
