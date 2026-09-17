@@ -579,33 +579,6 @@ export function generateWorklines(
       if (seg.a >= ex.sMax) return 1;
       return null;
     };
-    // Étendue en t de chaque obstacle : une passe dont t tombe dedans est
-    // RACCOURCIE par l'obstacle (pièces de part et d'autre). Ce sont ces
-    // pièces, et elles seules, qui portent une couleur de phase ; les
-    // passes entières (y compris courts morceaux de pointe de parcelle)
-    // restent à la couleur de base.
-    const ringTExtents = obstacles.map(o => {
-      let tMin = Infinity;
-      let tMax = -Infinity;
-      for (const p of o) {
-        const tv = tOf(p);
-        if (tv < tMin) tMin = tv;
-        if (tv > tMax) tMax = tv;
-      }
-      return { tMin, tMax };
-    });
-    // Côté (0/1) de la pièce raccourcie : couleur au rendu — bleu pour le
-    // 1er côté de l'obstacle, violet pour le 2e. Déterminé par la
-    // POSITION de la pièce, pas par l'ordre du parcours.
-    const shorteningSide = (seg: Seg): number | null => {
-      for (let i = 0; i < obstacles.length; i++) {
-        if (seg.t >= ringTExtents[i].tMin - 1e-6 && seg.t <= ringTExtents[i].tMax + 1e-6) {
-          const side = sideOfSeg(seg, i);
-          if (side !== null) return side;
-        }
-      }
-      return null;
-    };
     // Dernier côté visité par obstacle (propagé à travers les passes non
     // séparées) : détecte la bascule d'un côté à l'autre, même quand le
     // robot contourne par une extrémité sans jamais traverser l'anneau.
@@ -639,6 +612,25 @@ export function generateWorklines(
         addElem('obstacle', L.slice(best).concat(L.slice(0, best)), true);
       }
     };
+    // Pièce raccourcie par un obstacle : une de ses extrémités S'ARRÊTE
+    // sur un contour d'obstacle (anneau gonflé ou contour de tête le plus
+    // extérieur). Ce sont ces pièces, et elles seules, qui portent une
+    // couleur de phase ; les passes entières (y compris pointes de
+    // parcelle) restent à la couleur de base.
+    const onAnyRing = (p: Pt, rings: Pt[][]): boolean =>
+      rings.some(L => dist(p, nearestOnRing(p, L).pt) < 10);
+    const shorteningSide = (seg: Seg): number | null => {
+      const pa = at(seg.t, seg.a);
+      const pb = at(seg.t, seg.b);
+      for (let i = 0; i < obstacles.length; i++) {
+        const rings = [obstacles[i], ...loopsOf(i)];
+        if (onAnyRing(pa, rings) || onAnyRing(pb, rings)) {
+          const side = sideOfSeg(seg, i);
+          if (side !== null) return side;
+        }
+      }
+      return null;
+    };
     let guard = 0;
     while (allSegs.some(s => !s.done) && guard++ < allSegs.length + 10) {
       let candidates = allSegs.filter(s => !s.done);
@@ -666,8 +658,8 @@ export function generateWorklines(
       if (!bestSeg) break;
       const startPt = bestRev ? at(bestSeg.t, bestSeg.b) : at(bestSeg.t, bestSeg.a);
       // Bascule d'un côté à l'autre d'un obstacle : tracé des contours de
-      // l'obstacle À CE MOMENT-LÀ (le trait orange de transition mène au
-      // début du contour, puis les anneaux sont parcourus du plus
+      // l'obstacle À CE MOMENT-LÀ (le trait pointillé de transition mène
+      // au début du contour, puis les anneaux sont parcourus du plus
       // extérieur au plus intérieur).
       for (let i = 0; i < obstacles.length; i++) {
         const side = sideOfSeg(bestSeg, i);
