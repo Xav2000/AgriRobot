@@ -646,6 +646,20 @@ export function generateWorklines(
           segClearOf(le, at(s.t, s.b), obstacles));
         if (reachable.length > 0) candidates = reachable;
       }
+        // Lignes pleines d'abord : tant qu'une ligne NON coupée par un
+        // obstacle pas encore contourné est disponible, on la privilégie
+        // — le contour n'est déclenché que lorsque le parcours atteint
+        // réellement la première ligne coupée (sinon la sélection du
+        // segment le plus proche pouvait attaquer une pièce raccourcie
+        // dès le début du balayage).
+        const untouched = candidates.filter(s => {
+          const qa = at(s.t, s.a);
+          const qb = at(s.t, s.b);
+          return obstacles.every((o, i) =>
+            contoured.has(o) ||
+            (!onAnyRing(qa, [o, ...loopsOf(i)]) && !onAnyRing(qb, [o, ...loopsOf(i)])));
+        });
+        if (untouched.length > 0) candidates = untouched;
       // Segment dont l'extrémité la plus proche de la position courante
       // est minimale (boustrophédon naturel, U-turn au plus près).
       let bestSeg: Seg | null = null;
