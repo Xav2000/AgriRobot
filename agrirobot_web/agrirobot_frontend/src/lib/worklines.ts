@@ -61,9 +61,9 @@ export interface Workline {
   points: [number, number][];
   closed: boolean;
   /**
-   * Phase de la passe : 0 = hors de l'ombre d'un obstacle, 1 = côté A,
-   * 2 = côté B du premier obstacle qui sépare la passe (le long du sens
-   * de la passe). Déterminée par la POSITION, pas par l'ordre du parcours.
+   * Phase de parcours : 0 = couleur de base (passes entières) ; incrémentée
+   * à chaque contour d'obstacle (bascule d'un côté à l'autre). Seules les
+   * passes RACCOURCIES par un obstacle portent une phase colorée.
    * Utilisée par le rendu pour colorer les passes (contrôle visuel).
    */
   phase: number;
@@ -397,8 +397,8 @@ export function generateWorklines(
   };
 
   // Phase d'un élément : 0 par défaut (transitions, contours, headlands) ;
-  // les passes de balayage portent leur CÔTÉ par rapport aux obstacles
-  // (voir phaseOfSeg ci-dessous) — le rendu colore selon ce côté.
+  // les passes de balayage raccourcies par un obstacle portent la phase
+  // de parcours courante (voir la boucle des allers-retours).
   const addElem = (kind: WorklineKind, pts: Pt[], closed: boolean, phase = 0) => {
     if (pts.length < 2) return;
     const full = closed ? [...pts, pts[0]] : pts;
@@ -422,22 +422,10 @@ export function generateWorklines(
     addElem('headland', loop.slice(best).concat(loop.slice(0, best)), true);
   }
 
-  // Contours d'obstacles au niveau des headlands (bande de contour autour
-  // de chaque obstacle) — rouge pointillé, départ au plus proche.
-  if (params.outlineObstacles) {
-    for (const loop of obstacleLoops) {
-      let best = 0;
-      if (lastEnd) {
-        const le = lastEnd;
-        let bestD = Infinity;
-        loop.forEach((p, i) => {
-          const dd = dist(le, p);
-          if (dd < bestD) { bestD = dd; best = i; }
-        });
-      }
-      addElem('obstacle', loop.slice(best).concat(loop.slice(0, best)), true);
-    }
-  }
+  // (Les contours d'obstacles ne sont plus émis ici en bloc : ils le sont
+  // au moment où le parcours bascule d'un côté à l'autre d'un obstacle —
+  // voir la boucle des allers-retours ci-dessous. Miroir des headlands :
+  // anneau le plus extérieur d'abord.)
 
   // Allers-retours
   const tOf = (p: Pt): number => p.x * nv.x + p.y * nv.y;
@@ -591,19 +579,62 @@ export function generateWorklines(
       if (seg.a >= ex.sMax) return 1;
       return null;
     };
-    // Phase d'une passe : côté (A/B) du PREMIER obstacle qui la sépare ;
-    // 0 si aucun obstacle ne la sépare (flux normal).
-    const phaseOfSeg = (seg: Seg): number => {
-      for (let i = 0; i < obstacles.length; i++) {
-        const side = sideOfSeg(seg, i);
-        if (side !== null) return 1 + side;
+    // Étendue en t de chaque obstacle : une passe dont t tombe dedans est
+    // RACCOURCIE par l'obstacle (pièces de part et d'autre). Ce sont ces
+    // pièces, et elles seules, qui portent une couleur de phase ; les
+    // passes entières (y compris courts morceaux de pointe de parcelle)
+    // restent à la couleur de base.
+    const ringTExtents = obstacles.map(o => {
+      let tMin = Infinity;
+      let tMax = -Infinity;
+      for (const p of o) {
+        const tv = tOf(p);
+        if (tv < tMin) tMin = tv;
+        if (tv > tMax) tMax = tv;
       }
-      return 0;
-    };
+      return { tMin, tMax };
+    });
+    const isShortened = (seg: Seg): boolean =>
+      obstacles.some((o, i) =>
+        seg.t >= ringTExtents[i].tMin - 1e-6 && seg.t <= ringTExtents[i].tMax + 1e-6 &&
+        sideOfSeg(seg, i) !== null);
+    // Phase de PARCOURS : incrémentée chaque fois que le robot bascule
+    // d'un côté à l'autre d'un obstacle — le contour est tracé à ce
+    // moment-là. Une pièce raccourcie porte la phase courante.
+    let obstaclePhase = 0;
     // Dernier côté visité par obstacle (propagé à travers les passes non
-    // séparées) : détecte la bascule d'un côté à l'autre même quand le
-    // robot contourne par une extrémité sans jamais traverser l'anneau.
+    // séparées) : détecte la bascule même quand le robot contourne par
+    // une extrémité sans jamais traverser l'anneau.
     const effSide: Array<number | null> = obstacles.map(() => null);
+    // Anneaux de contour d'un obstacle (miroir des headlands : le plus
+    // extérieur en premier), rattachés à leur obstacle par centroïde.
+    const centroid = (r: Pt[]): Pt => ({
+      x: r.reduce((s, p) => s + p.x, 0) / r.length,
+      y: r.reduce((s, p) => s + p.y, 0) / r.length,
+    });
+    const loopsOf = (i: number): Pt[][] =>
+      obstacleLoops
+        .filter(L => {
+          let bestJ = 0;
+          let bestD = Infinity;
+          obstacles.forEach((o, j) => {
+            const dd = dist(centroid(o), centroid(L));
+            if (dd < bestD) { bestD = dd; bestJ = j; }
+          });
+          return bestJ === i;
+        })
+        .reverse();
+    const emitObstacleContours = (i: number): void => {
+      for (const L of loopsOf(i)) {
+        let best = 0;
+        let bestD = Infinity;
+        L.forEach((p, k) => {
+          const dd = lastEnd ? dist(lastEnd, p) : 0;
+          if (dd < bestD) { bestD = dd; best = k; }
+        });
+        addElem('obstacle', L.slice(best).concat(L.slice(0, best)), true);
+      }
+    };
     let guard = 0;
     while (allSegs.some(s => !s.done) && guard++ < allSegs.length + 10) {
       let candidates = allSegs.filter(s => !s.done);
@@ -630,28 +661,38 @@ export function generateWorklines(
       }
       if (!bestSeg) break;
       const startPt = bestRev ? at(bestSeg.t, bestSeg.b) : at(bestSeg.t, bestSeg.a);
-      // Bascule d'un côté à l'autre d'un obstacle : le robot passe du
-      // côté A au côté B (directement ou via des passes neutres qui
-      // contournent par une extrémité). Boucle de contour de l'obstacle
-      // émise à la première bascule.
+      // Bascule d'un côté à l'autre d'un obstacle : nouvelle phase de
+      // parcours + tracé des contours de l'obstacle À CE MOMENT-LÀ (le
+      // trait orange de transition mène au début du contour, puis les
+      // anneaux sont parcourus du plus extérieur au plus intérieur).
       for (let i = 0; i < obstacles.length; i++) {
         const side = sideOfSeg(bestSeg, i);
         if (side === null) continue;
         const prev = effSide[i];
-        if (le && prev !== null && prev !== side &&
-            params.outlineObstacles && !contoured.has(obstacles[i])) {
-          const o = obstacles[i];
-          contoured.add(o);
-          const near = nearestOnRing(le, o);
-          const rot = [...o.slice(near.idx + 1), ...o.slice(0, near.idx + 1)];
-          addElem('obstacle', [near.pt, ...rot], true);
+        if (le && prev !== null && prev !== side) {
+          obstaclePhase++;
+          if (params.outlineObstacles && !contoured.has(obstacles[i])) {
+            contoured.add(obstacles[i]);
+            emitObstacleContours(i);
+          }
         }
         effSide[i] = side;
       }
       const pa = at(bestSeg.t, bestSeg.a);
       const pb = at(bestSeg.t, bestSeg.b);
-      addElem('sweep', bestRev ? [pb, pa] : [pa, pb], false, phaseOfSeg(bestSeg));
+      addElem('sweep', bestRev ? [pb, pa] : [pa, pb], false,
+        isShortened(bestSeg) ? obstaclePhase : 0);
       bestSeg.done = true;
+    }
+    // Obstacles jamais basculés (un seul côté accessible, obstacle en
+    // bordure de parcelle…) : contours tracés en fin de parcours.
+    if (params.outlineObstacles) {
+      obstacles.forEach((o, i) => {
+        if (!contoured.has(o)) {
+          contoured.add(o);
+          emitObstacleContours(i);
+        }
+      });
     }
     if (allSegs.some(s => !s.done)) {
       warnings.push("Segments de passe inatteignables (obstacles trop imbriqués) — à contrôler.");
