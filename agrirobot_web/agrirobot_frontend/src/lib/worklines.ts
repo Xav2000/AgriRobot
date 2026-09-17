@@ -21,18 +21,16 @@
  * - grille ancrée sur le côté de départ (espacement strictement régulier) ;
  * - passes prolongées dans les pointes (couverture totale, chevauchement
  *   accepté — mieux vaut croiser que manquer) ;
- * - positionnement de la première passe : à une demi-largeur À L'INTÉRIEUR
- *   du dernier contour — la bande de headland et la première passe se
- *   recouvrent d'une demi-largeur (couverture), et la première passe ne
- *   longe jamais le contour sur toute sa longueur. Sans headland : à
- *   w/2 du bord.
+ * - position de la première passe : N·w + w/2 du bord (une demi-largeur À
+ *   L'INTÉRIEUR du dernier headland) — recouvrement d'une demi-largeur
+ *   avec la bande de contour, jamais de ligne collée au contour, jamais
+ *   de bande vide. Sans headland : w/2 du bord (couverture [0, w]).
  *
  * À venir (6.3b) : contour des obstacles et réordonnancement
  * côté A / côté B autour de chaque obstacle.
  *
  * Repère : conversion locale en mètres avec DEG_PER_METER = 1e-5,
- * identique à MapView et au nœud ROS (agrirobot_node.py) — le monde
- * virtuel de l'application reste cohérent de bout en bout.
+ * identique à MapView et au nœud ROS (agrirobot_node.py).
  */
 import ClipperLib from 'clipper-lib';
 import type { WorklinesParams } from '../context/WorklinesContext';
@@ -169,6 +167,7 @@ export function generateWorklines(
   }
 
   const w = Math.max(0.05, params.workingWidthM);
+  const N = params.headlands;
   const origin: [number, number] = params.entryPoint ?? target.points[0];
   // Polygone ORIGINAL : la bordure de référence est indexée dedans,
   // exactement comme lors de la sélection sur la carte.
@@ -196,23 +195,29 @@ export function generateWorklines(
   /* --- 1. Contours intérieurs (headlands) --- */
   const headlandLoops: Pt[][] = [];
   let ringSet: Pt[][] = [outer];
-  for (let k = 1; k <= params.headlands; k++) {
+  for (let k = 1; k <= N; k++) {
     ringSet = offsetRings(ringSet, -w);
     if (ringSet.length === 0) {
-      warnings.push('Zone épuisée avant le contour n°' + k + ' (trop petite pour ' + params.headlands + ' contours).');
+      warnings.push('Zone épuisée avant le contour n°' + k + ' (trop petite pour ' + N + ' contours).');
       break;
     }
     ringSet.forEach(r => headlandLoops.push(r));
   }
 
   /* --- 2. Zone de coupe des passes --------------------------------------
-   * Couverture totale : les passes sont prolongées d'une largeur dans la
-   * couronne des headlands (elles entrent dans les pointes), quitte à
-   * recouper des zones déjà couvertes. La coupe est à N-1 largeurs +
-   * une demi du bord : une largeur plus large que la zone de balayage
-   * pure. Les exclusions restent TOUJOURS soustraites (marge w/2).
+   * Couverture totale : les passes sont prolongées dans la couronne des
+   * headlands (elles entrent dans les pointes), quitte à recouper des
+   * zones déjà couvertes.
+   * - sans headland : coupe au bord même (les passes atteignent le bord) ;
+   * - avec N headlands : coupe à (N-1)·w + w/2 du bord (juste avant le
+   *   deuxième contour).
+   * Première passe : à N·w + w/2 du bord — une demi-largeur À L'INTÉRIEUR
+   * du dernier contour (recouvrement d'une demi-largeur avec la bande de
+   * contour), sans headland : w/2 du bord (couverture de [0, w]).
+   * Les exclusions restent TOUJOURS soustraites (marge d'une demi-largeur).
    */
-  const shrink = Math.max(0, params.headlands - 1) * w + w / 2;
+  const shrink = N === 0 ? 0 : (N - 1) * w + w / 2;
+  const firstPassFromBorder = N * w + w / 2;
   let sweepRings = offsetRings([outer], -shrink);
   const exclusions = zones
     .filter(z => z.type === 'exclusion' && z.points.length >= 3)
@@ -267,28 +272,23 @@ export function generateWorklines(
   if (sweepRings.length === 0 || !isFinite(tMin)) {
     warnings.push('Zone de balayage vide : zone trop petite pour la largeur de travail (contours seuls).');
   } else {
-    // Position de la première passe : à une demi-largeur À L'INTÉRIEUR du
-    // dernier headland — recouvrement d'une demi-largeur avec la bande de
-    // contour (couverture), sans longer le contour. Sans headland : w/2 du
-    // bord. tRef = distance signée du bord (bord = tMin).
-    const firstT = params.headlands * w + w / 2 - w / 2 + w / 2; // = N*w + w/2... voir ci-dessous
-    // Simplification : première passe à N*w + w/2 du bord.
-    const startOffset = params.headlands * w + w / 2;
+    // Positions limites de la première/dernière passe, mesurées depuis le
+    // bord de la zone de coupe (tMin/tMax) : la première passe est à
+    // firstPassFromBorder - shrink du bord de coupe (côté bas) et à
+    // firstPassFromBorder - shrink du bord haut.
+    const firstFromCut = firstPassFromBorder - shrink;
+    const tLow = tMin + firstFromCut;
+    const tHigh = tMax - firstFromCut;
 
-    // Grille ancrée sur le côté de DÉPART : espacement strictement
-    // régulier, pas de pas double de rattrapage.
+    // Grille ancrée sur le côté de DÉPART (espacement strictement régulier).
     let startFromMax = false;
     if (lastEnd) {
       startFromMax = tOf(lastEnd) > (tMin + tMax) / 2;
     }
     const tValues: number[] = [];
     if (startFromMax) {
-      const tHigh = tMax - startOffset;
-      const tLow = tMin + startOffset;
       for (let t = tHigh; t >= tLow; t -= w) tValues.push(t);
     } else {
-      const tLow = tMin + startOffset;
-      const tHigh = tMax - startOffset;
       for (let t = tLow; t <= tHigh; t += w) tValues.push(t);
     }
 
