@@ -42,9 +42,9 @@
  * avant de changer), transitions contournantes. Avec contours d'obstacle
  * activés, les allers-retours s'arrêtent sur le contour d'obstacle le
  * plus EXTÉRIEUR (miroir de R3) — jamais entre deux contours rouges.
- * Chaque ligne porte une PHASE : 0 = flux normal, incrémentée à chaque
- * changement de côté (transition franchissant un obstacle) — le rendu
- * colore les passes selon cette phase (contrôle visuel opérateur).
+ * Chaque ligne porte une PHASE : 0 = flux normal, sinon
+ * (n° d'obstacle + 1) * 10 + côté (0/1) — chaque obstacle a sa PAIRE
+ * de couleurs propre au rendu (contrôle visuel opérateur).
  *
  * Repère : conversion locale en mètres avec DEG_PER_METER = 1e-5,
  * identique à MapView et au nœud ROS (agrirobot_node.py).
@@ -61,9 +61,10 @@ export interface Workline {
   points: [number, number][];
   closed: boolean;
   /**
-   * Phase de la passe : 0 = couleur de base (passes entières) ; 1 = 1er
-   * côté d'un obstacle (bleu), 2 = 2e côté (violet). Seules les passes
-   * RACCOURCIES par un obstacle portent une couleur.
+   * Phase de la passe : 0 = couleur de base (passes entières) ; sinon
+   * (n° d'obstacle + 1) * 10 + côté (0 ou 1) : chaque obstacle a sa
+   * PAIRE de couleurs propre au rendu. Seules les passes RACCOURCIES
+   * par un obstacle portent une couleur.
    * Utilisée par le rendu pour colorer les passes (contrôle visuel).
    */
   phase: number;
@@ -654,7 +655,7 @@ export function generateWorklines(
           const sc = score(p);
           if (sc < bestScore) { bestScore = sc; best = k; }
         });
-        addElem('obstacle', L.slice(best).concat(L.slice(0, best)), true);
+        addElem('obstacle', L.slice(best).concat(L.slice(0, best)), true, (i + 1) * 10);
       }
     };
     // Pièce raccourcie par un obstacle : une de ses extrémités S'ARRÊTE
@@ -672,7 +673,7 @@ export function generateWorklines(
         if (!rowCrosses(seg, i)) continue;
         if (onAnyRing(pa, rings) || onAnyRing(pb, rings)) {
           const side = sideOfSeg(seg, i);
-          if (side !== null) return side;
+          if (side !== null) return (i + 1) * 10 + side;
           // Pièce à cheval sur l'étendue s (rangée proche d'une pointe) :
           // le côté est donné par l'EXTRÉMITÉ qui touche l'anneau —
           // coupée en fin de pièce (b) = 1er côté (bleu), coupée en
@@ -680,10 +681,10 @@ export function generateWorklines(
           // milieu de la pièce départage.
           const touchA = onAnyRing(pa, rings);
           const touchB = onAnyRing(pb, rings);
-          if (touchA && !touchB) return 1;
-          if (touchB && !touchA) return 0;
+          if (touchA && !touchB) return (i + 1) * 10 + 1;
+          if (touchB && !touchA) return (i + 1) * 10;
           const ex = ringExtents[i];
-          return (seg.a + seg.b) / 2 >= (ex.sMin + ex.sMax) / 2 ? 1 : 0;
+          return (i + 1) * 10 + ((seg.a + seg.b) / 2 >= (ex.sMin + ex.sMax) / 2 ? 1 : 0);
         }
       }
       return null;
@@ -795,7 +796,7 @@ export function generateWorklines(
       const pa = at(bestSeg.t, bestSeg.a);
       const pb = at(bestSeg.t, bestSeg.b);
       const sd = shorteningSide(bestSeg);
-      addElem('sweep', bestRev ? [pb, pa] : [pa, pb], false, sd === null ? 0 : 1 + sd);
+      addElem('sweep', bestRev ? [pb, pa] : [pa, pb], false, sd === null ? 0 : sd);
       bestSeg.done = true;
     }
     // Obstacles jamais basculés (un seul côté accessible, obstacle en

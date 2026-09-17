@@ -222,7 +222,7 @@ const WorklinesSidebar: React.FC = () => {
               <Alert key={i} severity="warning" sx={{ mt: 1 }}>{warn}</Alert>
             ))}
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-              Sur la carte : blanc = passages entiers ; bleu = 1er côté d'un obstacle, violet = 2e côté (passages s'arrêtant sur un contour d'obstacle) ; transitions pointillées de la couleur du côté destination (bleu/violet, orange sinon) ; rouge pointillé = contour d'obstacle.
+              Sur la carte : blanc = passages entiers ; chaque obstacle a sa PAIRE de couleurs propre (côté 1 / côté 2 : bleu/violet, vert/rose, jaune/indigo…) pour les passages s'arrêtant sur son contour ; transitions pointillées de la couleur du côté destination (orange sinon) ; rouge pointillé = contour d'obstacle.
             </Typography>
             <Button size="small" onClick={clearResult} sx={{ mt: 0.5 }}>
               Effacer les lignes

@@ -15,6 +15,23 @@ const ENTRY_COLOR = '#0D47A1';
  */
 const REFERENCE_COLOR = '#FFD600';
 
+/**
+ * Une PAIRE de couleurs par obstacle (cyclique) : [côté 1, côté 2].
+ * Chaque obstacle reçoit la paire suivante — ses pièces raccourcies et
+ * les transitions vers elles portent ses couleurs, ce qui distingue les
+ * contournements successifs à la validation.
+ */
+const OBSTACLE_PALETTE: [string, string][] = [
+  ['#4FC3F7', '#CE93D8'],
+  ['#4DB6AC', '#F06292'],
+  ['#FFD54F', '#7986CB'],
+  ['#AED581', '#FF8A65'],
+  ['#4DD0E1', '#BA68C8'],
+];
+const obstacleColor = (phase: number, side: 0 | 1): string =>
+  OBSTACLE_PALETTE[(Math.floor(phase / 10) - 1 + OBSTACLE_PALETTE.length) %
+    OBSTACLE_PALETTE.length][side];
+
 /** Marqueur du point d'entrée (glissable). */
 const entryIcon = L.divIcon({
   className: 'worklines-entry',
@@ -78,18 +95,19 @@ export const WorklinesLayer: React.FC = () => {
   return (
     <>
       {/* Lignes générées, colorées par PHASE de parcours (calculée par
-          l'algorithme) : la phase change à chaque changement de côté
-          autour d'un obstacle — blanc = flux normal (phase 0), bleu =
-          phases impaires, violet = phases paires. Contour d'obstacle
-          rouge pointillé, transitions orange pointillé, headlands blancs. */}
+          l'algorithme) : chaque obstacle a sa PAIRE de couleurs propre
+          (palette cyclique, côté 1 / côté 2) — blanc = flux normal
+          (phase 0). Contour d'obstacle rouge pointillé, transitions
+          pointillées de la couleur du côté destination, headlands blancs. */}
       {result && result.lines.map((line, i) => {
         const phase = line.phase ?? 0;
         let opts: L.PolylineOptions;
         if (line.kind === 'transition') {
-          // Transition colorée selon la phase de destination : pointillé
-          // bleu vers les pièces du 1er côté, violet vers le 2e côté,
-          // orange pour les transitions normales.
-          const tc = (line.phase ?? 0) === 1 ? '#4FC3F7' : (line.phase ?? 0) === 2 ? '#CE93D8' : '#FF9800';
+          // Transition colorée selon la phase de destination : la couleur
+          // de la paire de l'obstacle et du côté destination, orange pour
+          // les transitions normales.
+          const ph = line.phase ?? 0;
+          const tc = ph === 0 ? '#FF9800' : obstacleColor(ph, (ph % 2) as 0 | 1);
           opts = { color: tc, weight: 2, dashArray: '6 6', opacity: 0.95 };
         } else if (line.kind === 'obstacle') {
           opts = { color: '#F44336', weight: 2.5, dashArray: '4 6' };
@@ -98,9 +116,7 @@ export const WorklinesLayer: React.FC = () => {
         } else {
           opts = phase === 0
             ? { color: '#FFFFFF', weight: 1.5, opacity: 0.85 }
-            : phase % 2 === 1
-              ? { color: '#4FC3F7', weight: 1.5, opacity: 0.95 }
-              : { color: '#CE93D8', weight: 1.5, opacity: 0.95 };
+            : { color: obstacleColor(phase, (phase % 2) as 0 | 1), weight: 1.5, opacity: 0.95 };
         }
         return <Polyline key={'workline-' + i} positions={line.points} pathOptions={opts} />;
       })}
