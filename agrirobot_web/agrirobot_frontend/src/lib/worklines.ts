@@ -703,7 +703,23 @@ export function generateWorklines(
           !contoured.has(o) &&
           tOf(le) >= ringTExtents[i].tMin - 1e-6 &&
           tOf(le) <= ringTExtents[i].tMax + 1e-6);
-        if (!inBand && untouched.length > 0) candidates = untouched;
+        // ... et de même si la pièce la plus proche PAR LE CHEMIN est
+        // déjà une pièce raccourcie : le parcours est arrivé à
+        // l'obstacle par contiguïté de rangées, même si la position
+        // courante est encore sur la ligne blanche juste avant la
+        // bande (le test inBand seul ratait ce cas : le robot sautait
+        // par-dessus la bande pour finir les blancs au-delà).
+        let nearestIsColored = false;
+        if (le) {
+          let dNear = Infinity;
+          let sNear: Seg | null = null;
+          for (const s of candidates) {
+            const ds = Math.min(routeLen(le, at(s.t, s.a)), routeLen(le, at(s.t, s.b)));
+            if (ds < dNear) { dNear = ds; sNear = s; }
+          }
+          nearestIsColored = sNear != null && !untouched.includes(sNear);
+        }
+        if (!inBand && !nearestIsColored && untouched.length > 0) candidates = untouched;
       // Segment dont l'extrémité la plus proche de la position courante
       // est minimale (boustrophédon naturel, U-turn au plus près).
       let bestSeg: Seg | null = null;
