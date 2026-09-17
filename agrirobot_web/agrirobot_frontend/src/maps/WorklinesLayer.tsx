@@ -77,33 +77,29 @@ export const WorklinesLayer: React.FC = () => {
 
   return (
     <>
-      {/* Lignes générées, colorées par PHASE de parcours : chaque contour
-          d'obstacle franchi fait changer de côté — blanc = avant le premier
-          obstacle, bleu = 1er côté, violet = 2e côté, puis alternance.
-          Contour d'obstacle rouge pointillé, transitions orange pointillé,
-          headlands blancs. */}
-      {result && (() => {
-        let crossings = 0;
-        return result.lines.map((line, i) => {
-          let opts: L.PolylineOptions;
-          if (line.kind === 'transition') {
-            opts = { color: '#FF9800', weight: 2, dashArray: '6 6', opacity: 0.95 };
-          } else if (line.kind === 'obstacle') {
-            crossings++;
-            opts = { color: '#F44336', weight: 2.5, dashArray: '4 6' };
-          } else if (line.kind === 'headland') {
-            opts = { color: '#FFFFFF', weight: 3 };
-          } else {
-            // Passe : couleur selon la phase (nombre d'obstacles franchis)
-            opts = crossings === 0
-              ? { color: '#FFFFFF', weight: 1.5, opacity: 0.85 }
-              : crossings % 2 === 1
-                ? { color: '#4FC3F7', weight: 1.5, opacity: 0.95 }
-                : { color: '#CE93D8', weight: 1.5, opacity: 0.95 };
-          }
-          return <Polyline key={'workline-' + i} positions={line.points} pathOptions={opts} />;
-        });
-      })()}
+      {/* Lignes générées, colorées par PHASE de parcours (calculée par
+          l'algorithme) : la phase change à chaque changement de côté
+          autour d'un obstacle — blanc = flux normal (phase 0), bleu =
+          phases impaires, violet = phases paires. Contour d'obstacle
+          rouge pointillé, transitions orange pointillé, headlands blancs. */}
+      {result && result.lines.map((line, i) => {
+        const phase = line.phase ?? 0;
+        let opts: L.PolylineOptions;
+        if (line.kind === 'transition') {
+          opts = { color: '#FF9800', weight: 2, dashArray: '6 6', opacity: 0.95 };
+        } else if (line.kind === 'obstacle') {
+          opts = { color: '#F44336', weight: 2.5, dashArray: '4 6' };
+        } else if (line.kind === 'headland') {
+          opts = { color: '#FFFFFF', weight: 3 };
+        } else {
+          opts = phase === 0
+            ? { color: '#FFFFFF', weight: 1.5, opacity: 0.85 }
+            : phase % 2 === 1
+              ? { color: '#4FC3F7', weight: 1.5, opacity: 0.95 }
+              : { color: '#CE93D8', weight: 1.5, opacity: 0.95 };
+        }
+        return <Polyline key={'workline-' + i} positions={line.points} pathOptions={opts} />;
+      })}
 
       {/* Arêtes sélectionnables pendant le choix de la bordure de référence */}
       {pickMode === 'referenceBorder' &&

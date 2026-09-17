@@ -42,6 +42,9 @@
  * avant de changer), transitions contournantes. Avec contours d'obstacle
  * activés, les allers-retours s'arrêtent sur le contour d'obstacle le
  * plus EXTÉRIEUR (miroir de R3) — jamais entre deux contours rouges.
+ * Chaque ligne porte une PHASE : 0 = flux normal, incrémentée à chaque
+ * changement de côté (transition franchissant un obstacle) — le rendu
+ * colore les passes selon cette phase (contrôle visuel opérateur).
  *
  * Repère : conversion locale en mètres avec DEG_PER_METER = 1e-5,
  * identique à MapView et au nœud ROS (agrirobot_node.py).
@@ -57,6 +60,12 @@ export interface Workline {
   /** Points [lat, lng] ; boucles fermées : premier point répété en fin */
   points: [number, number][];
   closed: boolean;
+  /**
+   * Phase de parcours : 0 = flux normal, incrémentée à chaque changement
+   * de côté autour d'un obstacle (transition franchissant un obstacle).
+   * Utilisée par le rendu pour colorer les passes (contrôle visuel).
+   */
+  phase: number;
 }
 
 export interface WorklinesResult {
@@ -67,7 +76,6 @@ export interface WorklinesResult {
     headlandLoops: number;
     sweepPasses: number;
     transitions: number;
-    obstacleContours: number;
   };
   warnings: string[];
 }
@@ -166,7 +174,7 @@ const difference = (subject: Pt[][], clip: Pt[][]): Pt[][] => {
 /* Algorithme principal                                                */
 /* ------------------------------------------------------------------ */
 
-interface Elem { kind: WorklineKind; pts: Pt[]; closed: boolean; }
+interface Elem { kind: WorklineKind; pts: Pt[]; closed: boolean; phase: number; }
 
 /* ------------------------------------------------------------------ */
 /* Géométrie des obstacles (règle S0 : jamais traverser)               */
@@ -240,7 +248,7 @@ export function generateWorklines(
   const warnings: string[] = [];
   const empty: WorklinesResult = {
     lines: [],
-    stats: { totalLengthM: 0, headlandLoops: 0, sweepPasses: 0, transitions: 0, obstacleContours: 0 },
+    stats: { totalLengthM: 0, headlandLoops: 0, sweepPasses: 0, transitions: 0 },
     warnings,
   };
 
@@ -386,13 +394,18 @@ export function generateWorklines(
     return best;
   };
 
+  // Phase de parcours : 0 = flux normal ; incrémentée à chaque changement
+  // de côté (transition d'une passe à la suivante franchissant un
+  // obstacle). Le rendu colore les passes selon cette phase.
+  let currentPhase = 0;
+
   const addElem = (kind: WorklineKind, pts: Pt[], closed: boolean) => {
     if (pts.length < 2) return;
     const full = closed ? [...pts, pts[0]] : pts;
     if (lastEnd && dist(lastEnd, full[0]) > 1e-6) {
-      elems.push({ kind: 'transition', pts: routeTransition(lastEnd, full[0]), closed: false });
+      elems.push({ kind: 'transition', pts: routeTransition(lastEnd, full[0]), closed: false, phase: currentPhase });
     }
-    elems.push({ kind, pts: full, closed });
+    elems.push({ kind, pts: full, closed, phase: currentPhase });
     lastEnd = full[full.length - 1];
   };
 
@@ -585,14 +598,19 @@ export function generateWorklines(
       }
       if (!bestSeg) break;
       const startPt = bestRev ? at(bestSeg.t, bestSeg.b) : at(bestSeg.t, bestSeg.a);
-      // Franchissement d'obstacle : boucle de contour la première fois
-      if (le && !segClearOf(le, startPt, obstacles) && params.outlineObstacles) {
-        for (const o of obstacles) {
-          if (contoured.has(o) || !segHitsRing(le, startPt, o)) continue;
-          contoured.add(o);
-          const near = nearestOnRing(le, o);
-          const rot = [...o.slice(near.idx + 1), ...o.slice(0, near.idx + 1)];
-          addElem('obstacle', [near.pt, ...rot], true);
+      // Changement de côté : la transition franchit un obstacle → la
+      // phase change (couleur des passes au rendu).
+      if (le && !segClearOf(le, startPt, obstacles)) {
+        currentPhase++;
+        // Boucle de contour de l'obstacle franchi, la première fois
+        if (params.outlineObstacles) {
+          for (const o of obstacles) {
+            if (contoured.has(o) || !segHitsRing(le, startPt, o)) continue;
+            contoured.add(o);
+            const near = nearestOnRing(le, o);
+            const rot = [...o.slice(near.idx + 1), ...o.slice(0, near.idx + 1)];
+            addElem('obstacle', [near.pt, ...rot], true);
+          }
         }
       }
       const pa = at(bestSeg.t, bestSeg.a);
@@ -610,18 +628,17 @@ export function generateWorklines(
     kind: el.kind,
     points: el.pts.map(p => toLatLng(p, origin)),
     closed: el.closed,
+    phase: el.phase,
   }));
 
   let total = 0;
   let loops = 0;
   let sweeps = 0;
   let trans = 0;
-  let obs = 0;
   elems.forEach(el => {
     if (el.kind === 'transition') trans++;
     else if (el.kind === 'sweep') sweeps++;
     else if (el.kind === 'headland') loops++;
-    else if (el.kind === 'obstacle') obs++;
     for (let i = 1; i < el.pts.length; i++) total += dist(el.pts[i - 1], el.pts[i]);
   });
 
@@ -632,7 +649,6 @@ export function generateWorklines(
       headlandLoops: loops,
       sweepPasses: sweeps,
       transitions: trans,
-      obstacleContours: obs,
     },
     warnings,
   };
