@@ -61,8 +61,9 @@ export interface Workline {
   points: [number, number][];
   closed: boolean;
   /**
-   * Phase de parcours : 0 = flux normal, incrémentée à chaque changement
-   * de côté autour d'un obstacle (transition franchissant un obstacle).
+   * Phase de la passe : 0 = hors de l'ombre d'un obstacle, 1 = côté A,
+   * 2 = côté B du premier obstacle qui sépare la passe (le long du sens
+   * de la passe). Déterminée par la POSITION, pas par l'ordre du parcours.
    * Utilisée par le rendu pour colorer les passes (contrôle visuel).
    */
   phase: number;
@@ -395,18 +396,16 @@ export function generateWorklines(
     return best;
   };
 
-  // Phase de parcours : 0 = flux normal ; incrémentée à chaque changement
-  // de côté (transition d'une passe à la suivante franchissant un
-  // obstacle). Le rendu colore les passes selon cette phase.
-  let currentPhase = 0;
-
-  const addElem = (kind: WorklineKind, pts: Pt[], closed: boolean) => {
+  // Phase d'un élément : 0 par défaut (transitions, contours, headlands) ;
+  // les passes de balayage portent leur CÔTÉ par rapport aux obstacles
+  // (voir phaseOfSeg ci-dessous) — le rendu colore selon ce côté.
+  const addElem = (kind: WorklineKind, pts: Pt[], closed: boolean, phase = 0) => {
     if (pts.length < 2) return;
     const full = closed ? [...pts, pts[0]] : pts;
     if (lastEnd && dist(lastEnd, full[0]) > 1e-6) {
-      elems.push({ kind: 'transition', pts: routeTransition(lastEnd, full[0]), closed: false, phase: currentPhase });
+      elems.push({ kind: 'transition', pts: routeTransition(lastEnd, full[0]), closed: false, phase });
     }
-    elems.push({ kind, pts: full, closed, phase: currentPhase });
+    elems.push({ kind, pts: full, closed, phase });
     lastEnd = full[full.length - 1];
   };
 
@@ -573,6 +572,38 @@ export function generateWorklines(
     }
 
     const contoured = new Set<Pt[]>();
+    // Côté d'une passe par rapport à chaque obstacle, le long du sens de
+    // la passe (coordonnée s) : 0 = avant l'obstacle, 1 = après, null =
+    // non séparé (la passe passe par une extrémité de l'obstacle).
+    const ringExtents = obstacles.map(o => {
+      let sMin = Infinity;
+      let sMax = -Infinity;
+      for (const p of o) {
+        const sv = sOf(p);
+        if (sv < sMin) sMin = sv;
+        if (sv > sMax) sMax = sv;
+      }
+      return { sMin, sMax };
+    });
+    const sideOfSeg = (seg: Seg, i: number): number | null => {
+      const ex = ringExtents[i];
+      if (seg.b <= ex.sMin) return 0;
+      if (seg.a >= ex.sMax) return 1;
+      return null;
+    };
+    // Phase d'une passe : côté (A/B) du PREMIER obstacle qui la sépare ;
+    // 0 si aucun obstacle ne la sépare (flux normal).
+    const phaseOfSeg = (seg: Seg): number => {
+      for (let i = 0; i < obstacles.length; i++) {
+        const side = sideOfSeg(seg, i);
+        if (side !== null) return 1 + side;
+      }
+      return 0;
+    };
+    // Dernier côté visité par obstacle (propagé à travers les passes non
+    // séparées) : détecte la bascule d'un côté à l'autre même quand le
+    // robot contourne par une extrémité sans jamais traverser l'anneau.
+    const effSide: Array<number | null> = obstacles.map(() => null);
     let guard = 0;
     while (allSegs.some(s => !s.done) && guard++ < allSegs.length + 10) {
       let candidates = allSegs.filter(s => !s.done);
@@ -599,24 +630,27 @@ export function generateWorklines(
       }
       if (!bestSeg) break;
       const startPt = bestRev ? at(bestSeg.t, bestSeg.b) : at(bestSeg.t, bestSeg.a);
-      // Changement de côté : la transition franchit un obstacle → la
-      // phase change (couleur des passes au rendu).
-      if (le && !segClearOf(le, startPt, obstacles)) {
-        currentPhase++;
-        // Boucle de contour de l'obstacle franchi, la première fois
-        if (params.outlineObstacles) {
-          for (const o of obstacles) {
-            if (contoured.has(o) || !segHitsRing(le, startPt, o)) continue;
-            contoured.add(o);
-            const near = nearestOnRing(le, o);
-            const rot = [...o.slice(near.idx + 1), ...o.slice(0, near.idx + 1)];
-            addElem('obstacle', [near.pt, ...rot], true);
-          }
+      // Bascule d'un côté à l'autre d'un obstacle : le robot passe du
+      // côté A au côté B (directement ou via des passes neutres qui
+      // contournent par une extrémité). Boucle de contour de l'obstacle
+      // émise à la première bascule.
+      for (let i = 0; i < obstacles.length; i++) {
+        const side = sideOfSeg(bestSeg, i);
+        if (side === null) continue;
+        const prev = effSide[i];
+        if (le && prev !== null && prev !== side &&
+            params.outlineObstacles && !contoured.has(obstacles[i])) {
+          const o = obstacles[i];
+          contoured.add(o);
+          const near = nearestOnRing(le, o);
+          const rot = [...o.slice(near.idx + 1), ...o.slice(0, near.idx + 1)];
+          addElem('obstacle', [near.pt, ...rot], true);
         }
+        effSide[i] = side;
       }
       const pa = at(bestSeg.t, bestSeg.a);
       const pb = at(bestSeg.t, bestSeg.b);
-      addElem('sweep', bestRev ? [pb, pa] : [pa, pb], false);
+      addElem('sweep', bestRev ? [pb, pa] : [pa, pb], false, phaseOfSeg(bestSeg));
       bestSeg.done = true;
     }
     if (allSegs.some(s => !s.done)) {
