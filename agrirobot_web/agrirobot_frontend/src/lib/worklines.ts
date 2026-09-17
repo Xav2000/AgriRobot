@@ -7,24 +7,23 @@
  *
  * Étape 6.3a :
  * 1. contours intérieurs (headlands) — boucles fermées, de l'extérieur
- *    vers l'intérieur, espacés d'une largeur de travail ;
+ *    vers l'intérieur ;
  * 2. allers-retours parallèles à la bordure de référence, espacés d'une
- *    largeur, dans la zone intérieure restante, découpés par les zones
- *    d'exclusion (marge d'une demi-largeur : le robot ne passe jamais au
- *    contact d'un obstacle) ;
- * 3. transitions droites entre tracés consécutifs — rendues distinctement
- *    (orange pointillé) pour contrôle visuel par l'opérateur.
+ *    largeur, découpés par les zones d'exclusion (marge d'une demi-largeur) ;
+ * 3. transitions droites entre tracés consécutifs (orange pointillé).
  *
- * Correctifs (retours de test) :
- * - bordure de référence lue dans le polygone ORIGINAL ;
- * - allers-retours démarrant du côté le plus proche de la position courante ;
- * - grille ancrée sur le côté de départ (espacement strictement régulier) ;
- * - passes prolongées dans les pointes (couverture totale, chevauchement
- *   accepté — mieux vaut croiser que manquer) ;
- * - position de la première passe : N·w + w/2 du bord (une demi-largeur À
- *   L'INTÉRIEUR du dernier headland) — recouvrement d'une demi-largeur
- *   avec la bande de contour, jamais de ligne collée au contour, jamais
- *   de bande vide. Sans headland : w/2 du bord (couverture [0, w]).
+ * Géométrie validée (retours de test) :
+ * - la lame couvre w de large → le PREMIER contour est à w/2 du bord
+ *   (la bande [0, w] est couverte par ce contour seul, pas de double
+ *   décalage) ; contours suivants espacés d'une largeur : w/2, 1,5w, 2,5w…
+ * - première passe d'allers-retours à N·w du bord : une demi-largeur à
+ *   l'intérieur du dernier contour (recouvrement w/2, couverture totale).
+ *   Sans contour : w/2 du bord — la tondeuse fait demi-tour à l'intérieur.
+ * - passes prolongées dans les pointes (chevauchement accepté : mieux
+ *   vaut croiser que manquer) ;
+ * - bordure de référence lue dans le polygone original ; grille ancrée
+ *   sur le côté de départ (espacement régulier) ; démarrage du côté le
+ *   plus proche de la position courante.
  *
  * À venir (6.3b) : contour des obstacles et réordonnancement
  * côté A / côté B autour de chaque obstacle.
@@ -192,32 +191,43 @@ export function generateWorklines(
   const d: Pt = { x: (a2.x - a1.x) / edgeLen, y: (a2.y - a1.y) / edgeLen }; // direction des passes
   const nv: Pt = { x: -d.y, y: d.x };                                      // progression
 
-  /* --- 1. Contours intérieurs (headlands) --- */
+  /* --- 1. Contours intérieurs (headlands) ------------------------------
+   * La lame couvre w : le premier contour est à w/2 du bord (la bande
+   * [0, w] est couverte par lui seul — pas de double décalage), les
+   * suivants espacés d'une largeur : w/2, 1,5w, 2,5w…
+   */
   const headlandLoops: Pt[][] = [];
   let ringSet: Pt[][] = [outer];
-  for (let k = 1; k <= N; k++) {
-    ringSet = offsetRings(ringSet, -w);
+  if (N > 0) {
+    // Premier contour à w/2, puis pas d'une largeur
+    ringSet = offsetRings(ringSet, -w / 2);
     if (ringSet.length === 0) {
-      warnings.push('Zone épuisée avant le contour n°' + k + ' (trop petite pour ' + N + ' contours).');
-      break;
+      warnings.push('Zone trop petite pour un contour intérieur.');
+    } else {
+      ringSet.forEach(r => headlandLoops.push(r));
+      for (let k = 2; k <= N; k++) {
+        ringSet = offsetRings(ringSet, -w);
+        if (ringSet.length === 0) {
+          warnings.push('Zone épuisée avant le contour n°' + k + ' (trop petite pour ' + N + ' contours).');
+          break;
+        }
+        ringSet.forEach(r => headlandLoops.push(r));
+      }
     }
-    ringSet.forEach(r => headlandLoops.push(r));
   }
 
   /* --- 2. Zone de coupe des passes --------------------------------------
-   * Couverture totale : les passes sont prolongées dans la couronne des
-   * headlands (elles entrent dans les pointes), quitte à recouper des
-   * zones déjà couvertes.
-   * - sans headland : coupe au bord même (les passes atteignent le bord) ;
-   * - avec N headlands : coupe à (N-1)·w + w/2 du bord (juste avant le
-   *   deuxième contour).
-   * Première passe : à N·w + w/2 du bord — une demi-largeur À L'INTÉRIEUR
-   * du dernier contour (recouvrement d'une demi-largeur avec la bande de
-   * contour), sans headland : w/2 du bord (couverture de [0, w]).
+   * Couverture totale : passes prolongées dans la couronne des headlands
+   * (elles entrent dans les pointes), jusqu'à juste avant le deuxième
+   * contour (transitions visibles dessus).
+   * - sans headland : coupe au bord même ;
+   * - avec headlands : coupe à w du bord (2e contour à 1,5w, moins w/2).
+   * Première passe : N·w du bord — une demi-largeur à l'intérieur du
+   * dernier contour (à (N - 0,5)·w) ; sans headland : w/2 du bord.
    * Les exclusions restent TOUJOURS soustraites (marge d'une demi-largeur).
    */
-  const shrink = N === 0 ? 0 : (N - 1) * w + w / 2;
-  const firstPassFromBorder = N * w + w / 2;
+  const shrink = N === 0 ? 0 : w;
+  const firstPassFromBorder = N * w;
   let sweepRings = offsetRings([outer], -shrink);
   const exclusions = zones
     .filter(z => z.type === 'exclusion' && z.points.length >= 3)
@@ -272,10 +282,8 @@ export function generateWorklines(
   if (sweepRings.length === 0 || !isFinite(tMin)) {
     warnings.push('Zone de balayage vide : zone trop petite pour la largeur de travail (contours seuls).');
   } else {
-    // Positions limites de la première/dernière passe, mesurées depuis le
-    // bord de la zone de coupe (tMin/tMax) : la première passe est à
-    // firstPassFromBorder - shrink du bord de coupe (côté bas) et à
-    // firstPassFromBorder - shrink du bord haut.
+    // Première/dernière passe : firstPassFromBorder du bord de la zone,
+    // converti en distance depuis le bord de coupe (tMin/tMax).
     const firstFromCut = firstPassFromBorder - shrink;
     const tLow = tMin + firstFromCut;
     const tHigh = tMax - firstFromCut;
