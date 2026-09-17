@@ -345,7 +345,17 @@ export function generateWorklines(
     raw.forEach(p => { cx += p.x; cy += p.y; });
     const tCentroid = tOf({ x: cx / raw.length, y: cy / raw.length });
     const sigma: 1 | -1 = tCentroid >= tRef ? 1 : -1; // sens bordure → intérieur
-    const tFirst = tRef + sigma * (N === 0 ? w / 2 : N * w);
+    const tFirstIdeal = tRef + sigma * (N === 0 ? w / 2 : N * w);
+    // La position idéale repose PILE sur la limite de coupe (le retrait
+    // de la zone de balayage vaut exactement w/2 ou N·w) : cas dégénéré
+    // de tangence où, selon l'arrondi millimétrique de Clipper, la ligne
+    // peut tomber juste HORS de la zone (zéro croisement) et disparaître
+    // — laissant une bande vide en bord pour certaines largeurs seulement
+    // (constaté avec 0,50 m ; 0,45 et 0,55 passaient). On avance donc par
+    // petits pas vers l'intérieur jusqu'à la première ligne réellement
+    // couvrante : en pratique quelques millimètres, négligeable pour la
+    // couverture (chevauchement préféré au manque).
+    const tFirst = firstCoveringFrom(tFirstIdeal, sigma);
     const gridValues: number[] = [];
     for (let t = tFirst; sigma > 0 ? t <= tMax + 1e-9 : t >= tMin - 1e-9; t += sigma * w) {
       gridValues.push(t);
