@@ -42,6 +42,15 @@ const WorklinesSidebar: React.FC = () => {
     if (!Number.isNaN(n) && n > 0) setParams({ workingWidthM: n });
   };
 
+  // Marge de sécurité autour des obstacles : vide = demi-largeur de travail
+  const [marginInput, setMarginInput] = React.useState('');
+  const commitMargin = (v: string) => {
+    setMarginInput(v);
+    if (v.trim() === '') { setParams({ obstacleMarginM: null }); return; }
+    const n = parseFloat(v);
+    if (!Number.isNaN(n) && n >= 0) setParams({ obstacleMarginM: n });
+  };
+
   return (
     <Card>
       <CardContent>
@@ -178,6 +187,19 @@ const WorklinesSidebar: React.FC = () => {
           Les zones d'exclusion ne sont jamais traversées.
         </Typography>
 
+        {/* Marge de sécurité autour des obstacles */}
+        <TextField
+          label="Marge de sécurité obstacles (m)"
+          type="number"
+          size="small"
+          fullWidth
+          value={marginInput}
+          onChange={e => commitMargin(e.target.value)}
+          inputProps={{ min: 0, step: 0.05 }}
+          helperText="Vide = demi-largeur de travail. Distance minimale aux zones interdites."
+          sx={{ mt: 1.5 }}
+        />
+
         <Button
           variant="contained"
           fullWidth
@@ -192,14 +214,15 @@ const WorklinesSidebar: React.FC = () => {
           <Box sx={{ mt: 1.5 }}>
             <Alert severity="success">
               {result.stats.sweepPasses} passes • {result.stats.headlandLoops} contour
-              {result.stats.headlandLoops > 1 ? 's' : ''} • {result.stats.transitions} transitions
+              {result.stats.headlandLoops > 1 ? 's' : ''} • {result.stats.obstacleContours} contour
+              {result.stats.obstacleContours > 1 ? 's' : ''} d'obstacle • {result.stats.transitions} transitions
               • {result.stats.totalLengthM} m au total
             </Alert>
             {result.warnings.map((warn, i) => (
               <Alert key={i} severity="warning" sx={{ mt: 1 }}>{warn}</Alert>
             ))}
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-              Sur la carte : blanc = passages et contours, orange pointillé = transitions.
+              Sur la carte : blanc = passages et contours, orange pointillé = transitions, rouge = contour d'obstacle.
             </Typography>
             <Button size="small" onClick={clearResult} sx={{ mt: 0.5 }}>
               Effacer les lignes

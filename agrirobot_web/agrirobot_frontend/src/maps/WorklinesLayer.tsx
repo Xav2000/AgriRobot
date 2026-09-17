@@ -85,7 +85,9 @@ export const WorklinesLayer: React.FC = () => {
           pathOptions={
             line.kind === 'transition'
               ? { color: '#FF9800', weight: 2, dashArray: '6 6', opacity: 0.95 }
-              : line.kind === 'headland'
+              : line.kind === 'obstacle'
+                ? { color: '#F44336', weight: 2.5, dashArray: '4 6' }
+                : line.kind === 'headland'
                 ? { color: '#FFFFFF', weight: 3 }
                 : { color: '#FFFFFF', weight: 1.5, opacity: 0.85 }
           }

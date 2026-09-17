@@ -22,6 +22,11 @@
  * - R3 — les allers-retours s'arrêtent SUR la première ligne de contour
  *   rencontrée (la plus intérieure, à (N-0,5)·w du bord), sans la
  *   dépasser. Sans contour : coupe à w/2 du bord (R1).
+ * - S0 — une zone d'exclusion est un DANGER ABSOLU (mare, trou) : aucune
+ *   ligne ne la franchit jamais, même d'un millimètre ; les transitions
+ *   la contournent par son bord gonflé de la marge.
+ * - S1 — marge de sécurité autour des exclusions (paramétrable, défaut
+ *   w/2) : distance minimale entre le robot et la zone interdite.
  * - La grille des passes est ancrée sur la bordure de référence :
  *   première ligne à w/2 du bord sans contour (couvre [0, w]), à N·w
  *   avec contours (une demi-largeur à l'intérieur du contour
@@ -32,8 +37,9 @@
  *   sur le côté de départ (espacement régulier) ; démarrage du côté le
  *   plus proche de la position courante.
  *
- * À venir (6.3b) : contour des obstacles et réordonnancement
- * côté A / côté B autour de chaque obstacle.
+ * 6.3b : contour des obstacles (boucle à la marge de sécurité au premier
+ * franchissement), parcours par côtés (le côté atteignable est terminé
+ * avant de changer), transitions contournantes.
  *
  * Repère : conversion locale en mètres avec DEG_PER_METER = 1e-5,
  * identique à MapView et au nœud ROS (agrirobot_node.py).
@@ -59,6 +65,7 @@ export interface WorklinesResult {
     headlandLoops: number;
     sweepPasses: number;
     transitions: number;
+    obstacleContours: number;
   };
   warnings: string[];
 }
@@ -155,6 +162,71 @@ const difference = (subject: Pt[][], clip: Pt[][]): Pt[][] => {
 
 interface Elem { kind: WorklineKind; pts: Pt[]; closed: boolean; }
 
+/* ------------------------------------------------------------------ */
+/* Géométrie des obstacles (règle S0 : jamais traverser)               */
+/* ------------------------------------------------------------------ */
+
+const segSegIntersect = (p1: Pt, p2: Pt, p3: Pt, p4: Pt): boolean => {
+  const d1x = p2.x - p1.x, d1y = p2.y - p1.y;
+  const d2x = p4.x - p3.x, d2y = p4.y - p3.y;
+  const den = d1x * d2y - d1y * d2x;
+  if (Math.abs(den) < 1e-12) return false;
+  const t = ((p3.x - p1.x) * d2y - (p3.y - p1.y) * d2x) / den;
+  const u = ((p3.x - p1.x) * d1y - (p3.y - p1.y) * d1x) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+};
+
+/** Le segment [a,b] touche-t-il l'anneau (franchit son bord ou sa zone) ? */
+const segHitsRing = (a: Pt, b: Pt, ring: Pt[]): boolean => {
+  for (let i = 0; i < ring.length; i++) {
+    if (segSegIntersect(a, b, ring[i], ring[(i + 1) % ring.length])) return true;
+  }
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  return pointInRing(mid, ring);
+};
+
+/** Le segment [a,b] est-il libre de tout obstacle ? */
+const segClearOf = (a: Pt, b: Pt, rings: Pt[][]): boolean =>
+  rings.every(r => !segHitsRing(a, b, r));
+
+/** Point de l'anneau le plus proche de p (et index de l'arête porteuse). */
+const nearestOnRing = (p: Pt, ring: Pt[]): { pt: Pt; idx: number } => {
+  let best = { pt: ring[0], idx: 0 };
+  let bestD = Infinity;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    const abx = b.x - a.x, aby = b.y - a.y;
+    const len2 = abx * abx + aby * aby || 1e-12;
+    let u = ((p.x - a.x) * abx + (p.y - a.y) * aby) / len2;
+    u = Math.max(0, Math.min(1, u));
+    const q = { x: a.x + u * abx, y: a.y + u * aby };
+    const d = dist(p, q);
+    if (d < bestD) { bestD = d; best = { pt: q, idx: i }; }
+  }
+  return best;
+};
+
+/** Arc de l'anneau entre fromPt (arête fromIdx) et toPt, par le plus court. */
+const ringArc = (ring: Pt[], fromIdx: number, fromPt: Pt, toPt: Pt): Pt[] => {
+  const n = ring.length;
+  const to = nearestOnRing(toPt, ring);
+  const build = (step: number): Pt[] => {
+    const pts: Pt[] = [fromPt];
+    for (let k = 1; k <= n; k++) {
+      const idx = ((fromIdx + step * k) % n + n) % n;
+      pts.push(ring[idx]);
+      if (idx === to.idx) { pts.push(to.pt); return pts; }
+    }
+    pts.push(to.pt);
+    return pts;
+  };
+  const plen = (pts: Pt[]) => pts.reduce((s, q, i) => (i ? s + dist(pts[i - 1], q) : 0), 0);
+  const f = build(1);
+  const b = build(-1);
+  return plen(f) <= plen(b) ? f : b;
+};
+
 export function generateWorklines(
   params: WorklinesParams,
   zones: Zone[]
@@ -162,7 +234,7 @@ export function generateWorklines(
   const warnings: string[] = [];
   const empty: WorklinesResult = {
     lines: [],
-    stats: { totalLengthM: 0, headlandLoops: 0, sweepPasses: 0, transitions: 0 },
+    stats: { totalLengthM: 0, headlandLoops: 0, sweepPasses: 0, transitions: 0, obstacleContours: 0 },
     warnings,
   };
 
@@ -202,21 +274,54 @@ export function generateWorklines(
    * R2 : la lame couvre w → premier contour à w/2 du bord (bande [0, w]
    * couverte par lui seul), suivants espacés d'une largeur.
    */
+  /* --- Exclusions : zones STRICTEMENT interdites (règles S0 / S1) ---
+   * Une exclusion est un danger absolu (mare, trou d'eau) : le robot ne
+   * la traverse ni ne s'en approche plus près que la marge de sécurité.
+   */
+  const margin = Math.max(0.05, params.obstacleMarginM ?? w / 2);
+  const exclusions = zones
+    .filter(z => z.type === 'exclusion' && z.points.length >= 3)
+    .map(z => ccw(z.points.map(p => toLocal(p, origin))));
+  // Obstacles gonflés de la marge : AUCUNE ligne ne doit les franchir.
+  const obstacles: Pt[][] = [];
+  exclusions.forEach(r =>
+    offsetRings([r], margin).forEach(b => { if (b.length >= 3) obstacles.push(b); })
+  );
+
   const headlandLoops: Pt[][] = [];
+  const obstacleLoops: Pt[][] = [];
   let ringSet: Pt[][] = [outer];
+  /** Oriente les anneaux pour l'offset : extérieurs en sens trigo, trous
+   * (contours d'obstacle) en sens horaire — l'offset -w rétrécit ainsi
+   * les uns et dilate les autres quand la zone de tonte se réduit. */
+  const orientRings = (rings: Pt[][]): Pt[][] =>
+    rings.map(r => {
+      const isHole = rings.some(o => o !== r && pointInRing(r[0], o));
+      const a = signedArea(r);
+      return isHole !== (a < 0) ? r : [...r].reverse();
+    });
   if (N > 0) {
-    ringSet = offsetRings(ringSet, -w / 2);
+    // Soustraction des obstacles : la boucle de contour résultante longe
+    // naturellement chaque obstacle à la marge de sécurité (le bord du
+    // trou fait partie du trajet de contour).
+    ringSet = orientRings(difference(offsetRings(ringSet, -w / 2), obstacles));
     if (ringSet.length === 0) {
       warnings.push('Zone trop petite pour un contour intérieur.');
     } else {
-      ringSet.forEach(r => headlandLoops.push(r));
+      const emit = (rings: Pt[][]): void => {
+        rings.forEach(r => {
+          const isHole = rings.some(o => o !== r && pointInRing(r[0], o));
+          (isHole ? obstacleLoops : headlandLoops).push(r);
+        });
+      };
+      emit(ringSet);
       for (let k = 2; k <= N; k++) {
-        ringSet = offsetRings(ringSet, -w);
+        ringSet = orientRings(difference(offsetRings(ringSet, -w), obstacles));
         if (ringSet.length === 0) {
           warnings.push('Zone épuisée avant le contour n°' + k + ' (trop petite pour ' + N + ' contours).');
           break;
         }
-        ringSet.forEach(r => headlandLoops.push(r));
+        emit(ringSet);
       }
     }
   }
@@ -230,25 +335,42 @@ export function generateWorklines(
    */
   const shrink = N === 0 ? w / 2 : (N - 0.5) * w;
   let sweepRings = offsetRings([outer], -shrink);
-  const exclusions = zones
-    .filter(z => z.type === 'exclusion' && z.points.length >= 3)
-    .map(z => ccw(z.points.map(p => toLocal(p, origin))));
-  if (exclusions.length > 0 && sweepRings.length > 0) {
-    // Marge d'une demi-largeur : le robot ne colle jamais à un obstacle
-    const buffered: Pt[][] = [];
-    exclusions.forEach(r => offsetRings([r], w / 2).forEach(b => buffered.push(b)));
-    sweepRings = difference(sweepRings, buffered);
+  if (obstacles.length > 0 && sweepRings.length > 0) {
+    sweepRings = difference(sweepRings, obstacles);
   }
 
   /* --- 3. Assemblage ordonné du parcours --- */
   const elems: Elem[] = [];
   let lastEnd: Pt | null = params.entryPoint ? toLocal(params.entryPoint, origin) : null;
 
+  /** Transition évitant les obstacles (S0) : ligne droite si elle n'en
+   * touche aucun, sinon contournement par l'arc du bord gonflé de
+   * l'obstacle le plus proche — jamais de traversée. */
+  const routeTransition = (from: Pt, to: Pt): Pt[] => {
+    if (obstacles.length === 0 || segClearOf(from, to, obstacles)) return [from, to];
+    let best: Pt[] | null = null;
+    let bestLen = Infinity;
+    for (const o of obstacles) {
+      if (!segHitsRing(from, to, o)) continue;
+      const a = nearestOnRing(from, o);
+      const b = nearestOnRing(to, o);
+      const arc = ringArc(o, a.idx, a.pt, b.pt);
+      const path = [from, a.pt, ...arc, b.pt, to];
+      const len = path.reduce((s, q, i) => (i ? s + dist(path[i - 1], q) : 0), 0);
+      if (len < bestLen) { bestLen = len; best = path; }
+    }
+    if (!best) {
+      warnings.push("Transition sans contournement trouvé : trajet à contrôler (obstacle imbriqué).");
+      return [from, to];
+    }
+    return best;
+  };
+
   const addElem = (kind: WorklineKind, pts: Pt[], closed: boolean) => {
     if (pts.length < 2) return;
     const full = closed ? [...pts, pts[0]] : pts;
     if (lastEnd && dist(lastEnd, full[0]) > 1e-6) {
-      elems.push({ kind: 'transition', pts: [lastEnd, full[0]], closed: false });
+      elems.push({ kind: 'transition', pts: routeTransition(lastEnd, full[0]), closed: false });
     }
     elems.push({ kind, pts: full, closed });
     lastEnd = full[full.length - 1];
@@ -265,6 +387,23 @@ export function generateWorklines(
       });
     }
     addElem('headland', loop.slice(best).concat(loop.slice(0, best)), true);
+  }
+
+  // Contours d'obstacles au niveau des headlands (bande de contour autour
+  // de chaque obstacle) — rouge pointillé, départ au plus proche.
+  if (params.outlineObstacles) {
+    for (const loop of obstacleLoops) {
+      let best = 0;
+      if (lastEnd) {
+        const le = lastEnd;
+        let bestD = Infinity;
+        loop.forEach((p, i) => {
+          const dd = dist(le, p);
+          if (dd < bestD) { bestD = dd; best = i; }
+        });
+      }
+      addElem('obstacle', loop.slice(best).concat(loop.slice(0, best)), true);
+    }
   }
 
   // Allers-retours
@@ -374,46 +513,69 @@ export function generateWorklines(
     if (lastEnd) {
       startFromMax = tOf(lastEnd) > (tMin + tMax) / 2;
     }
-    // gridValues est construite DEPUIS la bordure de référence : son sens
-    // dépend du côté de la bordure (croissante si bordure côté tMin,
-    // décroissante si côté tMax). On ne l'inverse que si l'extrémité où
-    // elle commence n'est PAS le côté de départ voulu — sinon le parcours
-    // démarrait à l'opposé du point d'entrée (bordure du côté tMax).
-    const gridStartsAtMax = gridValues[gridValues.length - 1] < gridValues[0];
-    const tValues: number[] = (startFromMax !== gridStartsAtMax) ? [...gridValues].reverse() : gridValues;
+    const tValues: number[] = startFromMax ? [...gridValues].reverse() : gridValues;
 
-    // Sens de parcours de la première ligne : depuis l'extrémité la plus
-    // proche de la position courante, puis alternance (zigzag).
-    let forward = true;
-    if (lastEnd && tValues.length > 0) {
-      let sMin = Infinity;
-      let sMax = -Infinity;
-      sweepRings.forEach(r => r.forEach(p => {
-        const s = sOf(p);
-        if (s < sMin) sMin = s;
-        if (s > sMax) sMax = s;
-      }));
-      forward = sOf(lastEnd) <= (sMin + sMax) / 2;
-    }
-
+    // Tous les segments de passe (les obstacles découpent les lignes en
+    // morceaux de côté), puis parcours par CÔTÉS (règle utilisateur) :
+    // on avance de segment en segment tant que la transition directe ne
+    // franchit aucun obstacle — le côté où l'on se trouve est donc
+    // terminé jusqu'au bout avant de changer. Au premier franchissement
+    // d'un obstacle : boucle de contour complète (à la marge), puis
+    // transition contournante vers le segment suivant.
+    interface Seg { t: number; a: number; b: number; done: boolean; }
+    const allSegs: Seg[] = [];
     for (const t of tValues) {
       const uniq = crossingsAt(t);
       if (uniq.length % 2 !== 0) uniq.pop(); // tangence : on ignore
-      if (uniq.length < 2) continue;
-
-      // Segments de la ligne, appariés par parité
-      const segs: Array<[number, number]> = [];
       for (let i = 0; i + 1 < uniq.length; i += 2) {
-        segs.push([uniq[i], uniq[i + 1]]);
+        allSegs.push({ t, a: uniq[i], b: uniq[i + 1], done: false });
       }
-      // Zigzag : on parcourt la ligne dans un sens, la suivante dans l'autre
-      if (!forward) segs.reverse();
-      for (const seg of segs) {
-        const s0 = forward ? seg[0] : seg[1];
-        const s1 = forward ? seg[1] : seg[0];
-        addElem('sweep', [at(t, s0), at(t, s1)], false);
+    }
+
+    const contoured = new Set<Pt[]>();
+    let guard = 0;
+    while (allSegs.some(s => !s.done) && guard++ < allSegs.length + 10) {
+      let candidates = allSegs.filter(s => !s.done);
+      const le = lastEnd;
+      if (le) {
+        // Côté atteignable : transition directe possible sans obstacle
+        const reachable = candidates.filter(s =>
+          segClearOf(le, at(s.t, s.a), obstacles) &&
+          segClearOf(le, at(s.t, s.b), obstacles));
+        if (reachable.length > 0) candidates = reachable;
       }
-      forward = !forward;
+      // Segment dont l'extrémité la plus proche de la position courante
+      // est minimale (boustrophédon naturel, U-turn au plus près).
+      let bestSeg: Seg | null = null;
+      let bestD = Infinity;
+      let bestRev = false;
+      for (const s of candidates) {
+        const pa = at(s.t, s.a);
+        const pb = at(s.t, s.b);
+        const da = le ? dist(le, pa) : 0;
+        const db = le ? dist(le, pb) : 0;
+        const d = Math.min(da, db);
+        if (d < bestD) { bestD = d; bestSeg = s; bestRev = db < da; }
+      }
+      if (!bestSeg) break;
+      const startPt = bestRev ? at(bestSeg.t, bestSeg.b) : at(bestSeg.t, bestSeg.a);
+      // Franchissement d'obstacle : boucle de contour la première fois
+      if (le && !segClearOf(le, startPt, obstacles) && params.outlineObstacles) {
+        for (const o of obstacles) {
+          if (contoured.has(o) || !segHitsRing(le, startPt, o)) continue;
+          contoured.add(o);
+          const near = nearestOnRing(le, o);
+          const rot = [...o.slice(near.idx + 1), ...o.slice(0, near.idx + 1)];
+          addElem('obstacle', [near.pt, ...rot], true);
+        }
+      }
+      const pa = at(bestSeg.t, bestSeg.a);
+      const pb = at(bestSeg.t, bestSeg.b);
+      addElem('sweep', bestRev ? [pb, pa] : [pa, pb], false);
+      bestSeg.done = true;
+    }
+    if (allSegs.some(s => !s.done)) {
+      warnings.push("Segments de passe inatteignables (obstacles trop imbriqués) — à contrôler.");
     }
   }
 
@@ -428,10 +590,12 @@ export function generateWorklines(
   let loops = 0;
   let sweeps = 0;
   let trans = 0;
+  let obs = 0;
   elems.forEach(el => {
     if (el.kind === 'transition') trans++;
     else if (el.kind === 'sweep') sweeps++;
     else if (el.kind === 'headland') loops++;
+    else if (el.kind === 'obstacle') obs++;
     for (let i = 1; i < el.pts.length; i++) total += dist(el.pts[i - 1], el.pts[i]);
   });
 
@@ -442,6 +606,7 @@ export function generateWorklines(
       headlandLoops: loops,
       sweepPasses: sweeps,
       transitions: trans,
+      obstacleContours: obs,
     },
     warnings,
   };

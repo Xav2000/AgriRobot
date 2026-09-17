@@ -30,6 +30,12 @@ export interface WorklinesParams {
   headlands: number;
   workingWidthM: number;
   outlineObstacles: boolean;
+  /**
+   * Marge de sécurité autour des zones d'exclusion (m) ; null = demi-largeur
+   * de travail. Une exclusion est un danger absolu (mare, trou) : le robot
+   * ne s'en approche jamais plus près que cette marge.
+   */
+  obstacleMarginM: number | null;
 }
 
 const DEFAULT_PARAMS: WorklinesParams = {
@@ -39,6 +45,7 @@ const DEFAULT_PARAMS: WorklinesParams = {
   headlands: 0,
   workingWidthM: 0.5,
   outlineObstacles: true,
+  obstacleMarginM: null,
 };
 
 interface WorklinesContextValue {
