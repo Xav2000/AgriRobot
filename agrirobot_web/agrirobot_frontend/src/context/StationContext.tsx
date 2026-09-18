@@ -25,6 +25,8 @@ interface StationContextValue {
   moveStation: (position: [number, number]) => void;
   /** Tourne le cap de sortie du nombre de degrés donné */
   rotateStation: (deltaDeg: number) => void;
+  /** Oriente directement le cap de sortie (degrés, 0 = nord) */
+  setHeading: (deg: number) => void;
   clearStation: () => void;
   /** True pendant le placement au clic sur la carte */
   placing: boolean;
@@ -52,11 +54,15 @@ export const StationProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
   }, []);
 
+  const setHeading = useCallback((deg: number) => {
+    setStationState(prev => (prev ? { ...prev, headingDeg: ((deg % 360) + 360) % 360 } : prev));
+  }, []);
+
   const clearStation = useCallback(() => setStationState(null), []);
 
   return (
     <StationContext.Provider
-      value={{ station, setStation, moveStation, rotateStation, clearStation, placing, setPlacing }}
+      value={{ station, setStation, moveStation, rotateStation, setHeading, clearStation, placing, setPlacing }}
     >
       {children}
     </StationContext.Provider>
