@@ -55,6 +55,7 @@ interface ZonesContextValue {
   /** Corridors de circulation (étape 6.6) */
   corridors: Corridor[];
   selectedCorridorId: string | null;
+  selectCorridor: (id: string | null) => void;
   addCorridor: () => void;
   renameCorridor: (id: string, name: string) => void;
   deleteCorridor: (id: string) => void;

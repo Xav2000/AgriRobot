@@ -61,7 +61,7 @@ export const corridorWarnings = (
     warnings.push('ne rentre dans aucune zone de tonte');
   }
   for (const x of exclusions) {
-    const crosses = pts.some(p => pointInPolygon(p, x.points) || pointInRingStrict(p, x.points));
+    let crosses = pts.some(p => pointInPolygon(p, x.points) || pointInRingStrict(p, x.points));
     outer: for (let i = 0; i < pts.length - 1; i++) {
       for (let j = 0; j < x.points.length; j++) {
         if (segmentsIntersect(pts[i], pts[i + 1], x.points[j], x.points[(j + 1) % x.points.length])) {
