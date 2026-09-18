@@ -1,7 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Polygon, Polyline, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { useZones, CORRIDOR_COLOR } from '../context/ZonesContext';
+import { useZones, CORRIDOR_COLOR, Zone } from '../context/ZonesContext';
 import { useWorklines } from '../context/WorklinesContext';
 import { corridorWarnings } from '../lib/corridors';
 import { useUiMode } from '../context/UiModeContext';
@@ -9,6 +9,29 @@ import { useUiMode } from '../context/UiModeContext';
 /** Distance d'aimantation (px écran) : en dessous, un point de chemin de
  *  liaison se colle au portail (point d'entrée) de la zone proche. */
 const SNAP_PX = 20;
+
+/** Modes dans lesquels les chemins de liaison sont dessinables/éditables. */
+const CORRIDOR_MODES = ['zones', 'planning', 'corridors'];
+
+/** Aimante le point sur le portail d'une zone s'il est assez proche. */
+const snapToPortail = (
+  map: L.Map,
+  pt: [number, number],
+  zones: Zone[],
+  zoneEntryPoints: Record<string, [number, number]>
+): [number, number] => {
+  const c = map.latLngToContainerPoint(pt);
+  let best: [number, number] | null = null;
+  let bestPx = SNAP_PX;
+  for (const z of zones) {
+    if (z.type !== 'mow') continue;
+    const ep = zoneEntryPoints[z.id];
+    if (!ep) continue;
+    const px = map.latLngToContainerPoint(ep).distanceTo(c);
+    if (px < bestPx) { bestPx = px; best = ep; }
+  }
+  return best ?? pt;
+};
 
 /** Pastille de sommet (glissable). */
 const vertexIcon = (color: string) =>
@@ -35,9 +58,9 @@ const midpointIcon = () =>
 
 /**
  * Clic sur la carte :
- * - chemin de liaison sélectionné (modes zones et planification,
- *   édition active) : prolonge le tracé, avec aimantation sur le
- *   portail d'une zone si le clic est proche ;
+ * - chemin de liaison sélectionné (modes zones, planification et
+ *   chemins, édition active) : prolonge le tracé, avec aimantation sur
+ *   le portail d'une zone si le clic est proche ;
  * - zone sélectionnée (mode zones, édition active) : ajoute un sommet.
  * Pendant l'édition, les clics sur les polygones existants traversent
  * (aucune sélection détournée) — on peut ainsi dessiner une exclusion à
@@ -52,26 +75,12 @@ const MapClickHandler: React.FC = () => {
   const { zoneEntryPoints } = useWorklines();
   const map = useMap();
 
-  /** Aimante le point sur le portail d'une zone s'il est assez proche. */
-  const snapToPortail = (pt: [number, number]): [number, number] => {
-    const c = map.latLngToContainerPoint(pt);
-    let best: [number, number] | null = null;
-    let bestPx = SNAP_PX;
-    for (const z of zones) {
-      if (z.type !== 'mow') continue;
-      const ep = zoneEntryPoints[z.id];
-      if (!ep) continue;
-      const px = map.latLngToContainerPoint(ep).distanceTo(c);
-      if (px < bestPx) { bestPx = px; best = ep; }
-    }
-    return best ?? pt;
-  };
-
   useMapEvents({
     click(e) {
       if (!editMode) return;
-      if (selectedCorridorId && (mode === 'zones' || mode === 'planning')) {
-        appendCorridorPoint(snapToPortail([e.latlng.lat, e.latlng.lng]));
+      if (selectedCorridorId && CORRIDOR_MODES.includes(mode)) {
+        appendCorridorPoint(
+          snapToPortail(map, [e.latlng.lat, e.latlng.lng], zones, zoneEntryPoints));
       } else if (selectedZoneId && mode === 'zones') {
         appendPoint([e.latlng.lat, e.latlng.lng]);
       }
@@ -79,6 +88,46 @@ const MapClickHandler: React.FC = () => {
   });
 
   return null;
+};
+
+/**
+ * Élastique de tracé : pendant le dessin d'un chemin (sélectionné,
+ * édition active, au moins un point posé), une ligne pointillée relie
+ * le dernier sommet au curseur — le tracé se voit se construire dans
+ * N'IMPORTE QUEL sens, premier point dedans ou dehors. L'aimantation
+ * y est appliquée en temps réel : on voit le point se coller au
+ * portail avant de cliquer.
+ */
+const CorridorRubberBand: React.FC = () => {
+  const { mode } = useUiMode();
+  const { zones, corridors, selectedCorridorId, editMode } = useZones();
+  const { zoneEntryPoints } = useWorklines();
+  const map = useMap();
+  const [cursor, setCursor] = useState<[number, number] | null>(null);
+
+  const corridor = corridors.find(c => c.id === selectedCorridorId) ?? null;
+  const drawing = editMode && corridor !== null && corridor.points.length >= 1
+    && CORRIDOR_MODES.includes(mode);
+
+  useMapEvents({
+    mousemove(e) {
+      if (!drawing) return;
+      setCursor(
+        snapToPortail(map, [e.latlng.lat, e.latlng.lng], zones, zoneEntryPoints));
+    },
+    mouseout() {
+      setCursor(null);
+    },
+  });
+
+  if (!drawing || !cursor || !corridor) return null;
+  const last = corridor.points[corridor.points.length - 1];
+  return (
+    <Polyline
+      positions={[last, cursor]}
+      pathOptions={{ color: CORRIDOR_COLOR, weight: 3, opacity: 0.7, dashArray: '8 6' }}
+    />
+  );
 };
 
 /**
@@ -90,9 +139,9 @@ const MapClickHandler: React.FC = () => {
  * - poignées de sommets sur la zone sélectionnée, uniquement en mode
  *   zones avec édition active : glisser pour déplacer, clic droit pour
  *   supprimer
- * - chemins de liaison : sélection/édition en modes zones et
- *   planification, pastilles médianes cliquables pour insérer un sommet,
- *   aimantation des points sur les portails (points d'entrée des zones)
+ * - chemins de liaison : sélection/édition en modes zones, planification
+ *   et chemins, élastique de tracé, pastilles médianes cliquables pour
+ *   insérer un sommet, aimantation des points sur les portails
  * - curseur croix pendant l'édition
  */
 export const ZonesLayer: React.FC = () => {
@@ -105,23 +154,8 @@ export const ZonesLayer: React.FC = () => {
   const { zoneEntryPoints } = useWorklines();
   const map = useMap();
 
-  const corridorModes = mode === 'zones' || mode === 'planning';
+  const corridorModes = CORRIDOR_MODES.includes(mode);
   const editing = corridorModes && editMode && (selectedZoneId !== null || selectedCorridorId !== null);
-
-  /** Aimante le point sur le portail d'une zone s'il est assez proche. */
-  const snapToPortail = (pt: [number, number]): [number, number] => {
-    const c = map.latLngToContainerPoint(pt);
-    let best: [number, number] | null = null;
-    let bestPx = SNAP_PX;
-    for (const z of zones) {
-      if (z.type !== 'mow') continue;
-      const ep = zoneEntryPoints[z.id];
-      if (!ep) continue;
-      const px = map.latLngToContainerPoint(ep).distanceTo(c);
-      if (px < bestPx) { bestPx = px; best = ep; }
-    }
-    return best ?? pt;
-  };
 
   // Curseur croix pendant l'édition
   useEffect(() => {
@@ -135,6 +169,7 @@ export const ZonesLayer: React.FC = () => {
   return (
     <>
       <MapClickHandler />
+      <CorridorRubberBand />
 
       {zones.map(zone => {
         const selected = zone.id === selectedZoneId;
@@ -202,9 +237,9 @@ export const ZonesLayer: React.FC = () => {
       })}
 
       {/* Chemins de liaison (étape 6.6) : polyline bleue, cliquable hors
-          édition (sélection + édition) en modes zones et planification,
-          poignées et pastilles médianes en édition, aimantation des points
-          sur les portails des zones.
+          édition (sélection + édition) en modes zones, planification et
+          chemins, poignées et pastilles médianes en édition, élastique de
+          tracé, aimantation des points sur les portails des zones.
           Invalide (n'entre dans aucune zone / traverse une exclusion) :
           tracé pointillé + warning dans le tooltip. */}
       {corridors.map(corridor => {
@@ -250,7 +285,7 @@ export const ZonesLayer: React.FC = () => {
                   eventHandlers={{
                     dragend: e => {
                       const { lat, lng } = (e.target as L.Marker).getLatLng();
-                      updateCorridorVertex(i, snapToPortail([lat, lng]));
+                      updateCorridorVertex(i, snapToPortail(map, [lat, lng], zones, zoneEntryPoints));
                     },
                     contextmenu: () => removeCorridorVertex(i),
                   }}
@@ -267,7 +302,7 @@ export const ZonesLayer: React.FC = () => {
                     key={corridor.id + '-mid-' + i}
                     position={mid}
                     icon={midpointIcon()}
-                    eventHandlers={{ click: () => insertCorridorVertex(i + 1, snapToPortail(mid)) }}
+                    eventHandlers={{ click: () => insertCorridorVertex(i + 1, snapToPortail(map, mid, zones, zoneEntryPoints)) }}
                   />
                 );
               })}

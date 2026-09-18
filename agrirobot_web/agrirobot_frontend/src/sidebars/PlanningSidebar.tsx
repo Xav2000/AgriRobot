@@ -14,7 +14,7 @@ import ROSLIB from 'roslib';
 import { useTasks, Task } from '../hooks/useTasks';
 import { useRos } from '../hooks/useRos';
 import { useUiMode } from '../context/UiModeContext';
-import { useZones, CORRIDOR_COLOR } from '../context/ZonesContext';
+import { useZones } from '../context/ZonesContext';
 import { corridorWarnings } from '../lib/corridors';
 
 const TYPE_LABELS: Record<Task['type'], string> = {
@@ -25,14 +25,13 @@ const TYPE_LABELS: Record<Task['type'], string> = {
 };
 
 /**
- * Sidebar du mode planification : gestion de la file de tâches et des
- * chemins de liaison.
+ * Sidebar du mode planification : gestion de la file de tâches.
  * - File locale (brouillon) importée des tâches en attente reçues de
  *   /tasks/list ; les nouvelles tâches pending (parcours validés) sont
  *   ajoutées en fin de file sans toucher à l'ordre existant
  * - Ajout (nom, type, zone), suppression, réordonnancement par drag & drop
- * - Chemins de liaison (étape 6.6) : dessin et édition directement ici,
- *   avec contrôle de conformité avant la génération du parcours
+ * - Contrôle de conformité des chemins de liaison avant génération
+ *   (leur dessin/édition vit dans le mode dédié, accessible en bas)
  * - "Générer le parcours" publie generate_mission avec la file ordonnée
  *   puis ramène au dashboard
  */
@@ -40,19 +39,9 @@ const PlanningSidebar: React.FC = () => {
   const { ros, connectionState } = useRos();
   const { tasks } = useTasks();
   const { setMode, goBack } = useUiMode();
-  const {
-    zones, corridors, selectedCorridorId, selectCorridor, selectZone,
-    selectedZoneId, setEditMode, addCorridor,
-  } = useZones();
+  const { zones, corridors } = useZones();
 
   const disabled = connectionState !== 'connected';
-
-  // En planification, on n'édite pas les polygones : la sélection de zone
-  // éventuellement héritée du mode zones est libérée.
-  useEffect(() => {
-    if (selectedZoneId) selectZone(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // File locale (brouillon de la mission)
   const [queue, setQueue] = useState<Task[]>([]);
@@ -137,11 +126,9 @@ const PlanningSidebar: React.FC = () => {
   };
 
   // Conformité des chemins de liaison (avertissement, pas blocage)
-  const corridorStates = corridors.map(c => ({
-    corridor: c,
-    warnings: corridorWarnings(c, zones),
-  }));
-  const invalidCorridorCount = corridorStates.filter(cs => cs.warnings.length > 0).length;
+  const invalidCorridorCount = corridors.filter(
+    c => corridorWarnings(c, zones).length > 0
+  ).length;
 
   return (
     <Card>
@@ -252,79 +239,6 @@ const PlanningSidebar: React.FC = () => {
           </Box>
         )}
 
-        {/* Chemins de liaison (étape 6.6) : dessin, édition et contrôle
-            de conformité ici, avant la génération du parcours. */}
-        <Typography variant="subtitle2" gutterBottom>
-          Chemins de liaison ({corridors.length})
-        </Typography>
-
-        <Button
-          variant="contained"
-          startIcon={<AltRouteIcon />}
-          onClick={addCorridor}
-          fullWidth
-          sx={{ mb: 1.5 }}
-          style={{ backgroundColor: CORRIDOR_COLOR }}
-        >
-          Ajouter un chemin de liaison
-        </Button>
-
-        {corridors.length === 0 ? (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-            Un chemin de liaison relie la station (à venir) et les zones de tonte :
-            c'est le seul passage autorisé pour sortir d'un polygone.
-          </Typography>
-        ) : (
-          <Stack spacing={1} sx={{ mb: 1 }}>
-            {corridorStates.map(({ corridor, warnings }) => (
-              <Paper
-                key={corridor.id}
-                onClick={() => {
-                  // Sélection = édition directe sur la carte.
-                  selectCorridor(corridor.id);
-                  setEditMode(true);
-                }}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  p: 1,
-                  cursor: 'pointer',
-                  borderRadius: 1,
-                  border: '2px solid',
-                  borderColor: corridor.id === selectedCorridorId ? CORRIDOR_COLOR : 'divider',
-                  bgcolor: corridor.id === selectedCorridorId ? 'action.selected' : 'background.default',
-                }}
-              >
-                <AltRouteIcon sx={{ color: CORRIDOR_COLOR, fontSize: 20, flexShrink: 0 }} />
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography noWrap fontWeight={600}>{corridor.name}</Typography>
-                  {warnings.length > 0 ? (
-                    warnings.map((w, i) => (
-                      <Typography key={i} variant="caption" color="error" sx={{ display: 'block' }}>
-                        ⚠ {w}
-                      </Typography>
-                    ))
-                  ) : (
-                    <Typography variant="caption" color="text.secondary">
-                      {corridor.points.length} point{corridor.points.length > 1 ? 's' : ''} — valide
-                    </Typography>
-                  )}
-                </Box>
-              </Paper>
-            ))}
-          </Stack>
-        )}
-
-        {corridors.length > 0 && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-            Clique sur un chemin pour l'éditer : clics sur la carte pour le prolonger,
-            pastilles pour déplacer, pastilles translucides pour insérer un point,
-            clic droit sur une pastille pour supprimer. Suppression du chemin via la
-            corbeille (à droite de la carte).
-          </Typography>
-        )}
-
         {/* Actions */}
         <Stack spacing={1}>
           {invalidCorridorCount > 0 && (
@@ -352,6 +266,14 @@ const PlanningSidebar: React.FC = () => {
             fullWidth
           >
             Éditer les zones
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<AltRouteIcon />}
+            onClick={() => setMode('corridors')}
+            fullWidth
+          >
+            Éditer les chemins de liaison{corridors.length > 0 ? ' (' + corridors.length + ')' : ''}
           </Button>
         </Stack>
       </CardContent>

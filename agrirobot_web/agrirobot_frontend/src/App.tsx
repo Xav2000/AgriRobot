@@ -8,6 +8,7 @@ import { ZoneToolbar } from './maps/ZoneToolbar';
 import DashboardSidebar from './sidebars/DashboardSidebar';
 import PlanningSidebar from './sidebars/PlanningSidebar';
 import ZonesSidebar from './sidebars/ZonesSidebar';
+import CorridorsSidebar from './sidebars/CorridorsSidebar';
 import WorklinesSidebar from './sidebars/WorklinesSidebar';
 import { useRos } from './hooks/useRos';
 import { useColorMode } from './ColorModeContext';
@@ -34,6 +35,9 @@ const SidebarSwitcher: React.FC = () => {
       <Box sx={{ display: mode === 'zones' ? 'block' : 'none' }}>
         <ZonesSidebar />
       </Box>
+      <Box sx={{ display: mode === 'corridors' ? 'block' : 'none' }}>
+        <CorridorsSidebar />
+      </Box>
       <Box sx={{ display: mode === 'worklines' ? 'block' : 'none' }}>
         <WorklinesSidebar />
       </Box>
@@ -43,12 +47,11 @@ const SidebarSwitcher: React.FC = () => {
 
 /**
  * Superpositions de la carte selon le mode : toolbar d'édition visible
- * en mode zones (polygones) ET en mode planification (chemins de
- * liaison — édition depuis la planification depuis l'étape 6.6).
+ * en mode zones (polygones), planification et chemins de liaison.
  */
 const MapOverlays: React.FC = () => {
   const { mode } = useUiMode();
-  if (mode !== 'zones' && mode !== 'planning') return null;
+  if (mode !== 'zones' && mode !== 'planning' && mode !== 'corridors') return null;
   return <ZoneToolbar />;
 };
 

@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, Typography, Stack, Button } from '@mui/material';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import MapIcon from '@mui/icons-material/Map';
+import AltRouteIcon from '@mui/icons-material/AltRoute';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
 import ROSLIB from 'roslib';
@@ -94,7 +95,7 @@ const DashboardSidebar: React.FC = () => {
         </Card>
       )}
 
-      {/* Bouton Zones — toujours visible */}
+      {/* Boutons Zones et Chemins de liaison — toujours visibles */}
       <Card>
         <CardContent>
           <Button
@@ -102,8 +103,17 @@ const DashboardSidebar: React.FC = () => {
             startIcon={<MapIcon />}
             onClick={() => setMode('zones')}
             fullWidth
+            sx={{ mb: 1 }}
           >
             Zones
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<AltRouteIcon />}
+            onClick={() => setMode('corridors')}
+            fullWidth
+          >
+            Chemins de liaison
           </Button>
         </CardContent>
       </Card>
