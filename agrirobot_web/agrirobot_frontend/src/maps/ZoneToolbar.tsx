@@ -6,13 +6,14 @@ import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import { useZones } from '../context/ZonesContext';
 
 /**
- * Toolbar d'édition des zones, flottante sur le côté droit de la carte
- * (style OpenMowerApp). Visible uniquement en mode zones.
- * - bouton Édition : active/désactive l'édition des polygones (poignées,
- *   ajout de sommets au clic). Désactivée = carte propre et cliquable
- *   sans effet, utile pour créer une zone dans une autre sans détourner
- *   les clics.
- * - annulation du dernier sommet, suppression de la zone sélectionnée
+ * Toolbar d'édition, flottante sur le côté droit de la carte
+ * (style OpenMowerApp). Visible en mode zones (polygones) et en mode
+ * planification (chemins de liaison).
+ * - bouton Édition : active/désactive l'édition (poignées, ajout de
+ *   points au clic). Désactivée = carte propre et cliquable sans effet,
+ *   utile pour créer une zone dans une autre sans détourner les clics.
+ * - annulation du dernier point, suppression de la sélection (zone ou
+ *   chemin de liaison)
  */
 export const ZoneToolbar: React.FC = () => {
   const {
@@ -34,7 +35,7 @@ export const ZoneToolbar: React.FC = () => {
           title={
             editMode
               ? "Désactiver l'édition — poignées masquées, clics sans effet"
-              : "Activer l'édition — poignées visibles, clic carte : ajouter un sommet"
+              : "Activer l'édition — poignées visibles, clic carte : ajouter un point"
           }
           placement="left"
         >
@@ -46,7 +47,7 @@ export const ZoneToolbar: React.FC = () => {
           </IconButton>
         </Tooltip>
 
-        <Tooltip title="Supprimer le dernier sommet" placement="left">
+        <Tooltip title="Supprimer le dernier point" placement="left">
           <span>
             <IconButton
               onClick={() => {
@@ -66,7 +67,7 @@ export const ZoneToolbar: React.FC = () => {
           </span>
         </Tooltip>
 
-        <Tooltip title="Supprimer la sélection (zone ou corridor)" placement="left">
+        <Tooltip title="Supprimer la sélection (zone ou chemin de liaison)" placement="left">
           <span>
             <IconButton
               color="error"

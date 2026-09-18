@@ -16,11 +16,26 @@ const vertexIcon = (color: string) =>
     iconAnchor: [7, 7],
   });
 
+/** Pastille médiane translucide entre deux sommets d'un chemin de
+ *  liaison : un clic insère un nouveau sommet à cet endroit. */
+const midpointIcon = () =>
+  L.divIcon({
+    className: 'zone-vertex',
+    html:
+      '<div style="width:10px;height:10px;border-radius:50%;background:' + CORRIDOR_COLOR +
+      ';opacity:0.45;border:1px solid #fff"></div>',
+    iconSize: [10, 10],
+    iconAnchor: [5, 5],
+  });
+
 /**
- * Clic sur la carte : ajoute un sommet à la zone sélectionnée, uniquement
- * en mode zones avec édition active. Pendant l'édition, les clics sur les
- * polygones existants traversent (aucune sélection détournée) — on peut
- * ainsi dessiner une exclusion à l'intérieur d'une zone de tonte.
+ * Clic sur la carte :
+ * - chemin de liaison sélectionné (modes zones et planification,
+ *   édition active) : prolonge le tracé ;
+ * - zone sélectionnée (mode zones, édition active) : ajoute un sommet.
+ * Pendant l'édition, les clics sur les polygones existants traversent
+ * (aucune sélection détournée) — on peut ainsi dessiner une exclusion à
+ * l'intérieur d'une zone de tonte.
  */
 const MapClickHandler: React.FC = () => {
   const { mode } = useUiMode();
@@ -31,11 +46,10 @@ const MapClickHandler: React.FC = () => {
 
   useMapEvents({
     click(e) {
-      if (mode !== 'zones' || !editMode) return;
-      // Corridor sélectionné : le clic étend le tracé du corridor.
-      if (selectedCorridorId) {
+      if (!editMode) return;
+      if (selectedCorridorId && (mode === 'zones' || mode === 'planning')) {
         appendCorridorPoint([e.latlng.lat, e.latlng.lng]);
-      } else if (selectedZoneId) {
+      } else if (selectedZoneId && mode === 'zones') {
         appendPoint([e.latlng.lat, e.latlng.lng]);
       }
     },
@@ -47,10 +61,14 @@ const MapClickHandler: React.FC = () => {
 /**
  * Couche Leaflet des zones (polygones) :
  * - zones de tonte (palette) et zones d'exclusion (rouge, pointillées)
- * - clic sur un polygone (hors édition) : sélection + édition activée
- *   (seul point d'entrée d'édition pour les exclusions, non listées)
- * - poignées de sommets sur la zone sélectionnée, uniquement en mode zones
- *   avec édition active : glisser pour déplacer, clic droit pour supprimer
+ * - clic sur un polygone (hors édition, mode zones) : sélection + édition
+ *   activée (seul point d'entrée d'édition pour les exclusions, non
+ *   listées)
+ * - poignées de sommets sur la zone sélectionnée, uniquement en mode
+ *   zones avec édition active : glisser pour déplacer, clic droit pour
+ *   supprimer
+ * - chemins de liaison : sélection/édition en modes zones et
+ *   planification, pastilles médianes cliquables pour insérer un sommet
  * - curseur croix pendant l'édition
  */
 export const ZonesLayer: React.FC = () => {
@@ -58,11 +76,12 @@ export const ZonesLayer: React.FC = () => {
   const {
     zones, selectedZoneId, selectZone, editMode, setEditMode, updateVertex, removeVertex,
     corridors, selectedCorridorId, selectCorridor,
-    updateCorridorVertex, removeCorridorVertex,
+    updateCorridorVertex, removeCorridorVertex, insertCorridorVertex,
   } = useZones();
   const map = useMap();
 
-  const editing = mode === 'zones' && editMode && (selectedZoneId !== null || selectedCorridorId !== null);
+  const corridorModes = mode === 'zones' || mode === 'planning';
+  const editing = corridorModes && editMode && (selectedZoneId !== null || selectedCorridorId !== null);
 
   // Curseur croix pendant l'édition
   useEffect(() => {
@@ -122,7 +141,7 @@ export const ZonesLayer: React.FC = () => {
             )}
 
             {/* Poignées de sommets : zone sélectionnée, mode zones, édition active */}
-            {selected && editing &&
+            {selected && editing && mode === 'zones' &&
               zone.points.map((pt, i) => (
                 <Marker
                   key={zone.id + '-' + i}
@@ -142,8 +161,9 @@ export const ZonesLayer: React.FC = () => {
         );
       })}
 
-      {/* Corridors de circulation (étape 6.6) : polyline bleue, cliquable
-          hors édition (sélection + édition), poignées en édition.
+      {/* Chemins de liaison (étape 6.6) : polyline bleue, cliquable hors
+          édition (sélection + édition) en modes zones et planification,
+          poignées et pastilles médianes en édition.
           Invalide (n'entre dans aucune zone / traverse une exclusion) :
           tracé pointillé + warning dans le tooltip. */}
       {corridors.map(corridor => {
@@ -162,7 +182,7 @@ export const ZonesLayer: React.FC = () => {
                   dashArray: invalid ? '6 6' : undefined,
                 }}
                 eventHandlers={
-                  mode === 'zones' && !editMode
+                  corridorModes && !editMode
                     ? {
                         click: () => {
                           selectCorridor(corridor.id);
@@ -174,7 +194,7 @@ export const ZonesLayer: React.FC = () => {
               >
                 <Tooltip sticky>
                   {corridor.name}
-                  {invalid ? ' — invalide : ' + warnings.join(', ') : ' — corridor'}
+                  {invalid ? ' — invalide : ' + warnings.join(', ') : ' — chemin de liaison'}
                 </Tooltip>
               </Polyline>
             )}
@@ -195,6 +215,21 @@ export const ZonesLayer: React.FC = () => {
                   }}
                 />
               ))}
+
+            {/* Pastilles médianes : un clic insère un sommet entre deux */}
+            {selected && editing &&
+              corridor.points.slice(0, -1).map((pt, i) => {
+                const next = corridor.points[i + 1];
+                const mid: [number, number] = [(pt[0] + next[0]) / 2, (pt[1] + next[1]) / 2];
+                return (
+                  <Marker
+                    key={corridor.id + '-mid-' + i}
+                    position={mid}
+                    icon={midpointIcon()}
+                    eventHandlers={{ click: () => insertCorridorVertex(i + 1, mid) }}
+                  />
+                );
+              })}
           </React.Fragment>
         );
       })}

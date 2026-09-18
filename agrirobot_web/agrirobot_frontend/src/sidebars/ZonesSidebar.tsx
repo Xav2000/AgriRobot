@@ -7,9 +7,7 @@ import AddIcon from '@mui/icons-material/Add';
 import BlockIcon from '@mui/icons-material/Block';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import TimelineIcon from '@mui/icons-material/Timeline';
-import AltRouteIcon from '@mui/icons-material/AltRoute';
-import { useZones, CORRIDOR_COLOR } from '../context/ZonesContext';
-import { corridorWarnings } from '../lib/corridors';
+import { useZones } from '../context/ZonesContext';
 import { useUiMode } from '../context/UiModeContext';
 
 /**
@@ -21,18 +19,19 @@ import { useUiMode } from '../context/UiModeContext';
  *   sur la carte (édition inactive)
  * - renommage de la zone sélectionnée
  * - accès au mode lignes de guidage (dès qu'une zone de tonte est complète)
+ * - les chemins de liaison ne sont PAS gérés ici : ils se dessinent et se
+ *   contrôlent depuis la planification (compteur indicatif seulement)
  */
 const ZonesSidebar: React.FC = () => {
   const { goBack, setMode } = useUiMode();
   const {
     zones, selectedZoneId, selectZone, setEditMode, addZone, renameZone, deleteZone, editMode,
-    corridors, selectedCorridorId, selectCorridor, addCorridor, renameCorridor, deleteCorridor,
+    corridors,
   } = useZones();
 
   const mowZones = zones.filter(z => z.type === 'mow');
   const exclusionCount = zones.filter(z => z.type === 'exclusion').length;
   const selectedZone = zones.find(z => z.id === selectedZoneId) ?? null;
-  const selectedCorridor = corridors.find(c => c.id === selectedCorridorId) ?? null;
   const hasMowZone = zones.some(z => z.type === 'mow' && z.points.length >= 3);
 
   return (
@@ -132,62 +131,11 @@ const ZonesSidebar: React.FC = () => {
           </Typography>
         )}
 
-        {/* Corridors de circulation (étape 6.6) */}
-        <Button
-          variant="contained"
-          startIcon={<AltRouteIcon />}
-          onClick={addCorridor}
-          fullWidth
-          sx={{ mb: 1.5 }}
-          style={{ backgroundColor: CORRIDOR_COLOR }}
-        >
-          Corridor
-        </Button>
         {corridors.length > 0 && (
-          <Stack spacing={1} sx={{ mb: 2 }}>
-            {corridors.map(corridor => {
-              const warnings = corridorWarnings(corridor, zones);
-              return (
-                <Paper
-                  key={corridor.id}
-                  onClick={() => {
-                    selectCorridor(corridor.id);
-                    setEditMode(true);
-                  }}
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1,
-                    p: 1,
-                    cursor: 'pointer',
-                    borderRadius: 1,
-                    border: '2px solid',
-                    borderColor: corridor.id === selectedCorridorId ? CORRIDOR_COLOR : 'divider',
-                    bgcolor: corridor.id === selectedCorridorId ? 'action.selected' : 'background.default',
-                  }}
-                >
-                  <AltRouteIcon sx={{ color: CORRIDOR_COLOR, fontSize: 20, flexShrink: 0 }} />
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography noWrap fontWeight={600}>{corridor.name}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {corridor.points.length} point{corridor.points.length > 1 ? 's' : ''}
-                      {warnings.length > 0 ? ' — invalide' : ''}
-                    </Typography>
-                  </Box>
-                  <IconButton
-                    size="small"
-                    onClick={e => {
-                      e.stopPropagation();
-                      deleteCorridor(corridor.id);
-                    }}
-                    aria-label="supprimer le corridor"
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Paper>
-              );
-            })}
-          </Stack>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            {corridors.length} chemin{corridors.length > 1 ? 's' : ''} de liaison — se dessinent
+            et se contrôlent depuis la planification.
+          </Typography>
         )}
 
         {hasMowZone && (
@@ -221,35 +169,6 @@ const ZonesSidebar: React.FC = () => {
               <Typography variant="caption" color="text.secondary">
                 Édition inactive : active le bouton crayon (à droite de la carte) pour
                 ajouter ou déplacer des sommets.
-              </Typography>
-            )}
-          </Box>
-        )}
-
-        {selectedCorridor && (
-          <Box sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
-            <TextField
-              size="small"
-              label="Nom du corridor"
-              fullWidth
-              value={selectedCorridor.name}
-              onChange={e => renameCorridor(selectedCorridor.id, e.target.value)}
-              sx={{ mb: 1 }}
-            />
-            {corridorWarnings(selectedCorridor, zones).map((w, i) => (
-              <Typography key={i} variant="caption" color="error" sx={{ display: 'block' }}>
-                ⚠ {w}
-              </Typography>
-            ))}
-            {editMode ? (
-              <Typography variant="caption" color="text.secondary">
-                Édition active : clique sur la carte pour prolonger le tracé. Le corridor
-                doit rentrer dans une zone de tonte et ne jamais traverser une exclusion.
-              </Typography>
-            ) : (
-              <Typography variant="caption" color="text.secondary">
-                Édition inactive : active le bouton crayon (à droite de la carte) pour
-                modifier le tracé.
               </Typography>
             )}
           </Box>

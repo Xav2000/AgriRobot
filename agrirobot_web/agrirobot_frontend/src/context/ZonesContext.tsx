@@ -12,10 +12,10 @@ export interface Zone {
 }
 
 /**
- * Corridor de circulation (etape 6.6) : polyline ouverte dessinee par
+ * Chemin de liaison (etape 6.6) : polyline ouverte dessinee par
  * l'operateur, reliant la station (a venir) et/ou les zones de tonte.
  * Seul chemin autorise pour sortir d'un polygone. Les jonctions entre
- * corridors seront automatiques (graphe, etape 6.7).
+ * chemins seront automatiques (graphe, etape 6.7).
  */
 export interface Corridor {
   id: string;
@@ -24,7 +24,7 @@ export interface Corridor {
   points: [number, number][];
 }
 
-/** Couleur des corridors sur la carte. */
+/** Couleur des chemins de liaison sur la carte. */
 export const CORRIDOR_COLOR = '#2196F3';
 
 /** Palette des zones de tonte (le rouge est réservé aux exclusions). */
@@ -52,7 +52,7 @@ interface ZonesContextValue {
   popPoint: () => void;
   removeVertex: (index: number) => void;
   updateVertex: (index: number, point: [number, number]) => void;
-  /** Corridors de circulation (étape 6.6) */
+  /** Chemins de liaison (étape 6.6) — édition depuis la planification */
   corridors: Corridor[];
   selectedCorridorId: string | null;
   selectCorridor: (id: string | null) => void;
@@ -63,6 +63,8 @@ interface ZonesContextValue {
   popCorridorPoint: () => void;
   removeCorridorVertex: (index: number) => void;
   updateCorridorVertex: (index: number, point: [number, number]) => void;
+  /** Insère un sommet à l'index donné (point médian cliqué) */
+  insertCorridorVertex: (index: number, point: [number, number]) => void;
 }
 
 const ZonesContext = createContext<ZonesContextValue | null>(null);
@@ -103,7 +105,7 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const selectZone = useCallback((id: string | null) => {
     setSelectedZoneId(id);
-    // Zone et corridor : sélections exclusives
+    // Zone et chemin de liaison : sélections exclusives
     if (id !== null) setSelectedCorridorId(null);
   }, []);
 
@@ -152,12 +154,12 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
   }, [selectedZoneId]);
 
-  // ---- Corridors : même mécanique que les zones (polyline ouverte) ----
+  // ---- Chemins de liaison : même mécanique que les zones (polyline ouverte) ----
 
   const addCorridor = useCallback(() => {
     const corridor: Corridor = {
       id: 'corridor-' + Date.now(),
-      name: 'Corridor ' + (corridors.length + 1),
+      name: 'Chemin ' + (corridors.length + 1),
       points: [],
     };
     setCorridors(prev => [...prev, corridor]);
@@ -211,6 +213,18 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
   }, [selectedCorridorId]);
 
+  const insertCorridorVertex = useCallback((index: number, point: [number, number]) => {
+    if (!selectedCorridorId) return;
+    setCorridors(prev =>
+      prev.map(c => {
+        if (c.id !== selectedCorridorId) return c;
+        const points = [...c.points];
+        points.splice(index, 0, point);
+        return { ...c, points };
+      })
+    );
+  }, [selectedCorridorId]);
+
   const selectCorridor = useCallback((id: string | null) => {
     setSelectedCorridorId(id);
     if (id !== null) setSelectedZoneId(null);
@@ -238,6 +252,7 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     popCorridorPoint,
     removeCorridorVertex,
     updateCorridorVertex,
+    insertCorridorVertex,
     selectCorridor,
   };
 

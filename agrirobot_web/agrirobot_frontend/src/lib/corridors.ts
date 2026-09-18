@@ -1,12 +1,12 @@
 /**
- * Validation des corridors de circulation (etape 6.6).
+ * Validation des chemins de liaison (etape 6.6).
  *
- * Un corridor est une polyline ouverte dessinee par l'operateur :
+ * Un chemin de liaison est une polyline ouverte dessinee par l'operateur :
  * c'est le SEUL chemin autorise pour sortir d'un polygone. Regles :
  * - il doit ENTRER dans le polygone d'au moins une zone de tonte
- *   (au moins un de ses points a l'interieur) ;
+ *   (un point a l'interieur OU un segment qui traverse le contour) ;
  * - il ne doit JAMAIS traverser une zone d'exclusion (S0).
- * Les problemes sont des AVERTISSEMENTS : le corridor reste dessine et
+ * Les problemes sont des AVERTISSEMENTS : le chemin reste dessine et
  * corrigeable, mais sera signale comme invalide.
  */
 import type { Corridor, Zone } from '../context/ZonesContext';
@@ -39,7 +39,8 @@ const pointInRingStrict = (p: Pt, ring: Pt[]): boolean =>
   ring.some(q => q[0] === p[0] && q[1] === p[1]);
 
 /**
- * Verifie un corridor : retourne la liste des problemes (vide = valide).
+ * Verifie un chemin de liaison : retourne la liste des problemes
+ * (vide = valide).
  * - moins de 2 points : incomplete ;
  * - aucun point dans une zone de tonte : ne dessert aucune zone ;
  * - traverse (ou passe dans) une exclusion : interdit.
@@ -56,7 +57,17 @@ export const corridorWarnings = (
   }
   const mowZones = zones.filter(z => z.type === 'mow' && z.points.length >= 3);
   const exclusions = zones.filter(z => z.type === 'exclusion' && z.points.length >= 3);
-  const entersMow = mowZones.some(z => pts.some(p => pointInPolygon(p, z.points)));
+  // Le chemin rentre dans une zone de tonte si un de ses points est a
+  // l'interieur OU si un de ses segments traverse le contour : un chemin
+  // qui traverse la zone sans qu'aucun sommet soit dedans est valide.
+  const entersMow = mowZones.some(z =>
+    pts.some(p => pointInPolygon(p, z.points)) ||
+    pts.slice(0, -1).some((_, i) =>
+      z.points.some((q, j) =>
+        segmentsIntersect(pts[i], pts[i + 1], q, z.points[(j + 1) % z.points.length])
+      )
+    )
+  );
   if (!entersMow) {
     warnings.push('ne rentre dans aucune zone de tonte');
   }

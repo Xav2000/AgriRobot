@@ -16,8 +16,8 @@ import { ZonesProvider } from './context/ZonesContext';
 import { WorklinesProvider } from './context/WorklinesContext';
 
 /**
- * Les sidebars restent montées (état préservé, notamment la file de
- * tâches du mode planning quand on part éditer les zones) ; seule celle du
+ * Les sidebars restent montées (état préservé, notamment la file
+ * de tâches du mode planning quand on part éditer les zones) ; seule celle du
  * mode actif est affichée. La carte reste elle aussi montée en permanence.
  */
 const SidebarSwitcher: React.FC = () => {
@@ -41,10 +41,14 @@ const SidebarSwitcher: React.FC = () => {
   );
 };
 
-/** Superpositions de la carte selon le mode (toolbar d'édition de zones). */
+/**
+ * Superpositions de la carte selon le mode : toolbar d'édition visible
+ * en mode zones (polygones) ET en mode planification (chemins de
+ * liaison — édition depuis la planification depuis l'étape 6.6).
+ */
 const MapOverlays: React.FC = () => {
   const { mode } = useUiMode();
-  if (mode !== 'zones') return null;
+  if (mode !== 'zones' && mode !== 'planning') return null;
   return <ZoneToolbar />;
 };
 
