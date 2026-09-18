@@ -17,6 +17,13 @@ export interface Task {
   currentStep?: number;
   /** Waypoints reels [lat, lng] du parcours valide (etape 6.4) */
   waypoints?: [number, number][];
+  /**
+   * Etape 6.9 : tâche active (true par defaut) ou désactivée — une tâche
+   * désactivée reste dans la file mais le robot la saute lors de la mission.
+   */
+  enabled?: boolean;
+  /** Date (ISO 8601) de la dernière exécution terminée, tenue à jour par le robot */
+  lastExecutedAt?: string;
 }
 
 interface TasksState {

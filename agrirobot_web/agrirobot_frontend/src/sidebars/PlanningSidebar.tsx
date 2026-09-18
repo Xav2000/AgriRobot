@@ -2,11 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Card, CardContent, Typography, Button, Alert, Stack, Box, TextField,
   Select, MenuItem, IconButton, Chip, Paper, InputLabel, FormControl,
+  Switch, FormControlLabel,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import HistoryIcon from '@mui/icons-material/History';
 import RouteIcon from '@mui/icons-material/Route';
 import MapIcon from '@mui/icons-material/Map';
 import AltRouteIcon from '@mui/icons-material/AltRoute';
@@ -25,6 +27,19 @@ const TYPE_LABELS: Record<Task['type'], string> = {
 };
 
 /**
+ * Etape 6.9 : formate la date de dernière exécution d'une tâche
+ * (undefined -> « jamais exécutée »).
+ */
+const formatLastRun = (iso?: string): string => {
+  if (!iso) return 'Jamais exécutée';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'Jamais exécutée';
+  return 'Exécutée le ' + d.toLocaleString('fr-FR', {
+    dateStyle: 'short', timeStyle: 'short',
+  });
+};
+
+/**
  * Sidebar du mode planification : gestion de la file de tâches.
  * - File locale (brouillon) importée des tâches en attente reçues de
  *   /tasks/list ; les nouvelles tâches pending (parcours validés) sont
@@ -32,6 +47,9 @@ const TYPE_LABELS: Record<Task['type'], string> = {
  * - Ajout (nom, type, zone), suppression, réordonnancement par drag & drop
  * - Contrôle de conformité des chemins de liaison avant génération
  *   (leur dessin/édition vit dans le mode dédié, accessible en bas)
+ * - Activation/désactivation individuelle des tâches (etape 6.9) : une
+ *   tâche désactivée reste dans la file mais sera sautée par le robot ;
+ *   la date de dernière exécution est affichée sous le nom
  * - "Générer le parcours" publie generate_mission avec la file ordonnée
  *   puis ramène au dashboard
  */
@@ -103,6 +121,23 @@ const PlanningSidebar: React.FC = () => {
     setNewField('');
   };
 
+  // Etape 6.9 : bascule d'activation d'une tâche de la file. Les tâches
+  // connues du robot (id non local) voient l'état propagé immédiatement
+  // via set_task_enabled pour garder /tasks/list synchronisé.
+  const toggleEnabled = (id: string, enabled: boolean) => {
+    setQueue(prev => prev.map(t => t.id === id ? { ...t, enabled } : t));
+    if (ros && connectionState === 'connected' && !id.startsWith('local-')) {
+      const cmdPub = new ROSLIB.Topic({
+        ros,
+        name: '/task/command',
+        messageType: 'std_msgs/String',
+      });
+      cmdPub.publish(new ROSLIB.Message({
+        data: JSON.stringify({ action: 'set_task_enabled', id, enabled }),
+      }));
+    }
+  };
+
   const removeTask = (id: string) => {
     removedRef.current.add(id);
     setQueue(prev => prev.filter(t => t.id !== id));
@@ -124,6 +159,9 @@ const PlanningSidebar: React.FC = () => {
     setQueue([]);
     setMode('dashboard');
   };
+
+  // Nombre de tâches désactivées dans la file (etape 6.9)
+  const disabledCount = queue.filter(t => t.enabled === false).length;
 
   // Conformité des chemins de liaison (avertissement, pas blocage)
   const invalidCorridorCount = corridors.filter(
@@ -192,7 +230,7 @@ const PlanningSidebar: React.FC = () => {
 
         {/* File de tâches ordonnée */}
         <Typography variant="subtitle2" gutterBottom>
-          File de tâches ({queue.length})
+          File de tâches ({queue.length}{disabledCount > 0 ? ' • ' + disabledCount + ' désactivée' + (disabledCount > 1 ? 's' : '') : ''})
         </Typography>
 
         {queue.length === 0 ? (
@@ -218,7 +256,7 @@ const PlanningSidebar: React.FC = () => {
                   borderRadius: 1,
                   bgcolor: 'background.default',
                   cursor: 'grab',
-                  opacity: dragIndex === i ? 0.5 : 1,
+                  opacity: dragIndex === i ? 0.5 : (task.enabled === false ? 0.55 : 1),
                   border: '1px solid',
                   borderColor: dragIndex === i ? 'primary.main' : 'divider',
                 }}
@@ -230,7 +268,25 @@ const PlanningSidebar: React.FC = () => {
                   <Typography variant="caption" color="text.secondary">
                     {TYPE_LABELS[task.type]}{task.field ? ' • ' + task.field : ''}
                   </Typography>
+                  <Stack direction="row" spacing={0.5} alignItems="center">
+                    <HistoryIcon sx={{ fontSize: 13 }} color="action" />
+                    <Typography variant="caption" color="text.secondary">
+                      {formatLastRun(task.lastExecutedAt)}
+                    </Typography>
+                  </Stack>
                 </Box>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      size="small"
+                      checked={task.enabled !== false}
+                      onChange={e => toggleEnabled(task.id, e.target.checked)}
+                    />
+                  }
+                  label="Active"
+                  labelPlacement="top"
+                  sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 11 } }}
+                />
                 <IconButton size="small" onClick={() => removeTask(task.id)} aria-label="supprimer la tâche">
                   <DeleteIcon fontSize="small" />
                 </IconButton>
