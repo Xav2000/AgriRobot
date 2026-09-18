@@ -144,6 +144,8 @@ const CorridorRubberBand: React.FC = () => {
  * - chemins de liaison : sélection/édition en modes zones, planification
  *   et chemins, élastique de tracé, pastilles médianes cliquables pour
  *   insérer un sommet, aimantation des points sur les portails
+ * - tooltips MASQUÉS pendant l'édition : sinon le label sticky suit le
+ *   curseur et masque le portail (point d'entrée) qu'on veut cliquer
  * - curseur croix pendant l'édition
  */
 export const ZonesLayer: React.FC = () => {
@@ -204,10 +206,15 @@ export const ZonesLayer: React.FC = () => {
                     : undefined
                 }
               >
-                <Tooltip sticky>
-                  {zone.name}
-                  {isExclusion ? ' — exclusion' : ''}
-                </Tooltip>
+                {/* Tooltip masqué pendant l'édition : sinon il suit le
+                    curseur et masque le portail (point d'entrée) qu'on
+                    essaie de cliquer pour l'aimantation. */}
+                {!editMode && (
+                  <Tooltip sticky>
+                    {zone.name}
+                    {isExclusion ? ' — exclusion' : ''}
+                  </Tooltip>
+                )}
               </Polygon>
             )}
 
@@ -290,10 +297,14 @@ export const ZonesLayer: React.FC = () => {
                     : undefined
                 }
               >
-                <Tooltip sticky>
-                  {corridor.name}
-                  {invalid ? ' — invalide : ' + warnings.join(', ') : ' — chemin de liaison'}
-                </Tooltip>
+                {/* Tooltip masqué pendant l'édition (même raison que
+                    les polygones : ne pas masquer les portails). */}
+                {!editMode && (
+                  <Tooltip sticky>
+                    {corridor.name}
+                    {invalid ? ' — invalide : ' + warnings.join(', ') : ' — chemin de liaison'}
+                  </Tooltip>
+                )}
               </Polyline>
             )}
 
