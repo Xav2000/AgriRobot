@@ -83,6 +83,23 @@ export interface WorklinesResult {
   warnings: string[];
 }
 
+/**
+ * Aplatit le résultat en WAYPOINTS [lat, lng] dans l'ordre exact du
+ * parcours du robot (étape 6.4) : headlands, passes, transitions et
+ * contours d'obstacle, points de jonction consécutifs dédoublonnés.
+ * C'est la trajectoire envoyée au robot via generate_mission.
+ */
+export const toWaypoints = (result: WorklinesResult): [number, number][] => {
+  const wps: [number, number][] = [];
+  for (const line of result.lines) {
+    for (const p of line.points) {
+      const last = wps[wps.length - 1];
+      if (!last || last[0] !== p[0] || last[1] !== p[1]) wps.push([p[0], p[1]]);
+    }
+  }
+  return wps;
+};
+
 /* ------------------------------------------------------------------ */
 /* Repère métrique local                                               */
 /* ------------------------------------------------------------------ */

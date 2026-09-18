@@ -23,8 +23,9 @@ const TYPE_LABELS: Record<Task['type'], string> = {
 
 /**
  * Sidebar du mode planification : gestion de la file de tâches.
- * - File locale (brouillon) initialisée une seule fois avec les tâches
- *   en attente reçues de /tasks/list (sans écraser les modifs utilisateur)
+ * - File locale (brouillon) importée des tâches en attente reçues de
+ *   /tasks/list ; les nouvelles tâches pending (parcours validés) sont
+ *   ajoutées en fin de file sans toucher à l'ordre existant
  * - Ajout (nom, type, zone), suppression, réordonnancement par drag & drop
  * - "Générer le parcours" publie generate_mission avec la file ordonnée
  *   puis ramène au dashboard
@@ -38,16 +39,23 @@ const PlanningSidebar: React.FC = () => {
 
   // File locale (brouillon de la mission)
   const [queue, setQueue] = useState<Task[]>([]);
-  const importedRef = useRef(false);
+  // Tâches retirées de la file par l'utilisateur (ou déjà envoyées en
+  // mission) : jamais ré-importées automatiquement.
+  const removedRef = useRef<Set<string>>(new Set());
 
-  // Auto-import unique des tâches en attente existantes
+  // Import des tâches en attente : la file vide repart des pending ; les
+  // NOUVELLES tâches pending (p. ex. un parcours validé en mode lignes
+  // de guidage) sont ajoutées en fin de file — l'ordre existant n'est
+  // jamais modifié.
   useEffect(() => {
-    if (importedRef.current) return;
-    const pending = tasks.filter(t => t.status === 'pending');
-    if (pending.length > 0) {
-      importedRef.current = true;
-      setQueue(prev => (prev.length === 0 ? pending : prev));
-    }
+    setQueue(prev => {
+      const pending = tasks.filter(
+        t => t.status === 'pending' && !removedRef.current.has(t.id));
+      if (prev.length === 0) return pending.length > 0 ? pending : prev;
+      const known = new Set(prev.map(t => t.id));
+      const fresh = pending.filter(t => !known.has(t.id));
+      return fresh.length > 0 ? [...prev, ...fresh] : prev;
+    });
   }, [tasks]);
 
   // Formulaire d'ajout
@@ -75,7 +83,6 @@ const PlanningSidebar: React.FC = () => {
 
   const addTask = () => {
     if (!newName.trim()) return;
-    importedRef.current = true; // l'utilisateur a pris la main, plus d'auto-import
     setQueue(prev => [
       ...prev,
       {
@@ -91,7 +98,7 @@ const PlanningSidebar: React.FC = () => {
   };
 
   const removeTask = (id: string) => {
-    importedRef.current = true;
+    removedRef.current.add(id);
     setQueue(prev => prev.filter(t => t.id !== id));
   };
 
@@ -105,10 +112,10 @@ const PlanningSidebar: React.FC = () => {
     cmdPub.publish(new ROSLIB.Message({
       data: JSON.stringify({ action: 'generate_mission', tasks: queue }),
     }));
-    // File vidée : la prochaine session de planification repartira
-    // des tâches pending publiées par le backend
+    // File vidée : les tâches envoyées ne sont pas ré-importées, la
+    // prochaine session repart des nouvelles tâches pending seulement
+    queue.forEach(t => removedRef.current.add(t.id));
     setQueue([]);
-    importedRef.current = false;
     setMode('dashboard');
   };
 

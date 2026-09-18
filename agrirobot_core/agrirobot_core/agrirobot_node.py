@@ -10,8 +10,9 @@ Topics publiés :
   - /tasks/list     (String JSON : tâches + progression)
   - /mission/path   (String JSON : waypoints [lat,lng] + statut par tâche)
 Commandes (/task/command, String JSON) :
-  add_task, generate_mission, start_all_tasks, stop_all_tasks,
-  start_task, stop_task, go_to_charge, leave_charge, return_to_charge
+  add_task (waypoints [lat,lng] optionnels), remove_task, generate_mission,
+  start_all_tasks, stop_all_tasks, start_task, stop_task, go_to_charge,
+  leave_charge, return_to_charge
 """
 
 import rclpy
@@ -29,6 +30,12 @@ DEG_PER_METER = 0.00001
 def meters_to_latlng(x, y):
     """Convertit des mètres (x vers l'est, y vers le nord) en [lat, lng]."""
     return [ORIGIN_LAT + y * DEG_PER_METER, ORIGIN_LNG + x * DEG_PER_METER]
+
+
+def latlng_to_meters(latlng):
+    """Convertit un waypoint [lat, lng] du frontend en mètres (x, y)."""
+    lat, lng = latlng[0], latlng[1]
+    return ((lng - ORIGIN_LNG) / DEG_PER_METER, (lat - ORIGIN_LAT) / DEG_PER_METER)
 
 
 class AgriRobotNode(Node):
@@ -179,34 +186,64 @@ class AgriRobotNode(Node):
 
             if action == 'add_task':
                 task = command.get('task', {})
+                # Waypoints réels [lat, lng] si fournis (parcours validé
+                # par l'opérateur), zigzag simulé sinon
+                wps = ([latlng_to_meters(p) for p in task['waypoints']]
+                       if task.get('waypoints')
+                       else self.generate_waypoints(len(self.tasks)))
                 self.tasks.append({
                     'id': task.get('id', f'task-{len(self.tasks)}'),
                     'name': task.get('name', 'Tâche'),
                     'type': task.get('type', 'custom'),
                     'status': 'pending',
                     'field': task.get('field'),
-                    'waypoints': self.generate_waypoints(len(self.tasks)),
+                    'waypoints': wps,
                     'completed_waypoints': 0,
                 })
                 self.publish_tasks_list()
                 self.publish_mission_path()
                 self.get_logger().info(f"Added task: {task.get('name')}")
 
+            elif action == 'remove_task':
+                # Retire une tâche PENDING (déverrouillage d'un parcours
+                # validé) — les tâches en cours ou complétées sont gardées
+                tid = command.get('id')
+                before = len(self.tasks)
+                self.tasks = [t for t in self.tasks
+                              if t.get('id') != tid or t.get('status') != 'pending']
+                if len(self.tasks) < before:
+                    self.publish_tasks_list()
+                    self.publish_mission_path()
+                    self.get_logger().info(f'Removed pending task: {tid}')
+                else:
+                    self.get_logger().warning(f'No pending task to remove: {tid}')
+
             elif action == 'generate_mission':
-                # Remplace la mission courante par la file ordonnée reçue
+                # Remplace la mission courante par la file ordonnée reçue.
+                # Waypoints : ceux envoyés par le frontend (parcours
+                # validé), sinon ceux déjà stockés pour cet id, sinon le
+                # zigzag simulé.
                 self.executing = False
                 self.robot_status = 'idle'
                 self.current_task_idx = 0
                 self.current_wp_idx = 0
+                previous = {t['id']: t for t in self.tasks}
                 self.tasks = []
                 for i, t in enumerate(command.get('tasks', [])):
+                    tid = t.get('id', f'task-{i}')
+                    if t.get('waypoints'):
+                        wps = [latlng_to_meters(p) for p in t['waypoints']]
+                    elif tid in previous and previous[tid].get('waypoints'):
+                        wps = previous[tid]['waypoints']
+                    else:
+                        wps = self.generate_waypoints(i)
                     self.tasks.append({
-                        'id': t.get('id', f'task-{i}'),
+                        'id': tid,
                         'name': t.get('name', f'Tâche {i + 1}'),
                         'type': t.get('type', 'custom'),
                         'status': 'pending',
                         'field': t.get('field'),
-                        'waypoints': self.generate_waypoints(i),
+                        'waypoints': wps,
                         'completed_waypoints': 0,
                     })
                 self.publish_tasks_list()

@@ -15,6 +15,12 @@ export interface Task {
   totalSteps?: number;
   /** Étape courante */
   currentStep?: number;
+  /**
+   * Waypoints réels [lat, lng] du parcours validé (étape 6.4). Absents
+   * des tâches publiées sur /tasks/list : le robot les conserve en
+   * interne et les réutilise à la génération de mission.
+   */
+  waypoints?: [number, number][];
 }
 
 interface TasksState {

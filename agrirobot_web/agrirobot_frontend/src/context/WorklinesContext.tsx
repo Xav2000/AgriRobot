@@ -53,8 +53,9 @@ interface WorklinesContextValue {
   pickMode: PickMode;
   setPickMode: (mode: PickMode) => void;
   /**
-   * Fusionne un patch dans les paramètres. Changer de zone cible
-   * réinitialise le point d'entrée, la bordure de référence et le résultat.
+   * Fusionne un patch dans les paramètres. Ignoré si le parcours est
+   * verrouillé. Changer de zone cible réinitialise le point d'entrée,
+   * la bordure de référence, le résultat et le verrou.
    */
   setParams: (patch: Partial<WorklinesParams>) => void;
   resetParams: () => void;
@@ -63,6 +64,16 @@ interface WorklinesContextValue {
   /** Calcule les lignes à partir des paramètres et des zones courants */
   generate: () => void;
   clearResult: () => void;
+  /**
+   * Étape 6.4 — parcours VALIDÉ par l'opérateur : lignes verrouillées
+   * (paramètres et génération gelés) jusqu'au déverrouillage ou au
+   * changement de zone cible.
+   */
+  locked: boolean;
+  /** Verrouille le parcours validé */
+  lock: () => void;
+  /** Déverrouille (retour en prévisualisation éditable) */
+  unlock: () => void;
 }
 
 const WorklinesContext = createContext<WorklinesContextValue | null>(null);
@@ -70,10 +81,18 @@ const WorklinesContext = createContext<WorklinesContextValue | null>(null);
 export const WorklinesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { zones } = useZones();
   const [params, setParamsState] = useState<WorklinesParams>(DEFAULT_PARAMS);
-  const [pickMode, setPickMode] = useState<PickMode>(null);
+  const [pickMode, setPickModeState] = useState<PickMode>(null);
   const [result, setResult] = useState<WorklinesResult | null>(null);
+  const [locked, setLocked] = useState(false);
+
+  // Verrouillé : plus aucune sélection sur la carte
+  const setPickMode = useCallback((mode: PickMode) => {
+    if (locked) return;
+    setPickModeState(mode);
+  }, [locked]);
 
   const setParams = useCallback((patch: Partial<WorklinesParams>) => {
+    if (locked) return;
     setParamsState(prev => {
       const next = { ...prev, ...patch };
       // Le point d'entrée et la bordure de référence sont liés à la zone cible.
@@ -83,25 +102,36 @@ export const WorklinesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
       return next;
     });
-    // Changer de zone cible invalide les lignes affichées
-    if (patch.targetZoneId !== undefined) setResult(null);
-  }, []);
+    // Changer de zone cible invalide les lignes affichées et le verrou
+    if (patch.targetZoneId !== undefined) {
+      setResult(null);
+      setLocked(false);
+    }
+  }, [locked]);
 
   const generate = useCallback(() => {
+    if (locked) return;
     setResult(generateWorklines(params, zones));
-  }, [params, zones]);
+  }, [params, zones, locked]);
 
-  const clearResult = useCallback(() => setResult(null), []);
+  const clearResult = useCallback(() => {
+    if (locked) return;
+    setResult(null);
+  }, [locked]);
 
   const resetParams = useCallback(() => {
     setParamsState(DEFAULT_PARAMS);
-    setPickMode(null);
+    setPickModeState(null);
     setResult(null);
+    setLocked(false);
   }, []);
+
+  const lock = useCallback(() => setLocked(true), []);
+  const unlock = useCallback(() => setLocked(false), []);
 
   return (
     <WorklinesContext.Provider
-      value={{ params, pickMode, setPickMode, setParams, resetParams, result, generate, clearResult }}
+      value={{ params, pickMode, setPickMode, setParams, resetParams, result, generate, clearResult, locked, lock, unlock }}
     >
       {children}
     </WorklinesContext.Provider>

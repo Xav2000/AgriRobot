@@ -6,21 +6,34 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import BorderStyleIcon from '@mui/icons-material/BorderStyle';
+import LockIcon from '@mui/icons-material/Lock';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
+import RouteIcon from '@mui/icons-material/Route';
+import ROSLIB from 'roslib';
 import { useUiMode } from '../context/UiModeContext';
 import { useZones } from '../context/ZonesContext';
 import { useWorklines } from '../context/WorklinesContext';
+import { useRos } from '../hooks/useRos';
+import { toWaypoints } from '../lib/worklines';
 
 /**
  * Sidebar du mode lignes de guidage : saisie des paramètres de génération
  * (zone cible, point d'entrée, bordure de référence, headlands, largeur,
  * obstacles) puis génération et prévisualisation sur la carte.
+ * Étape 6.4 : « Valider le parcours » verrouille les lignes (paramètres
+ * gelés) et ajoute une tâche avec les WAYPOINTS RÉELS à la file de
+ * planification — la mission générée suit exactement ce parcours.
  * Sur la carte : blanc = passages et contours, orange pointillé =
  * transitions (contrôle visuel du trajet du robot).
  */
 const WorklinesSidebar: React.FC = () => {
-  const { goBack } = useUiMode();
+  const { goBack, setMode } = useUiMode();
   const { zones } = useZones();
-  const { params, pickMode, setPickMode, setParams, result, generate, clearResult } = useWorklines();
+  const { ros, connectionState } = useRos();
+  const {
+    params, pickMode, setPickMode, setParams, result, generate, clearResult,
+    locked, lock, unlock,
+  } = useWorklines();
 
   const mowZones = zones.filter(z => z.type === 'mow' && z.points.length >= 3);
   const targetZone = zones.find(z => z.id === params.targetZoneId) ?? null;
@@ -51,6 +64,55 @@ const WorklinesSidebar: React.FC = () => {
     if (!Number.isNaN(n) && n >= 0) setParams({ obstacleMarginM: n });
   };
 
+  // ---- Étape 6.4 : validation et verrouillage du parcours ----
+  // Id de la tâche créée à la validation (gardé pour le déverrouillage).
+  const [taskId, setTaskId] = React.useState<string | null>(null);
+  const [confirmUnlock, setConfirmUnlock] = React.useState(false);
+
+  const validateCourse = () => {
+    if (!ros || connectionState !== 'connected' || !result || !targetZone) return;
+    const id = 'wl-' + Date.now();
+    const cmdPub = new ROSLIB.Topic({
+      ros,
+      name: '/task/command',
+      messageType: 'std_msgs/String',
+    });
+    cmdPub.publish(new ROSLIB.Message({
+      data: JSON.stringify({
+        action: 'add_task',
+        task: {
+          id,
+          name: 'Tonte — ' + targetZone.name,
+          type: 'mowing',
+          field: targetZone.name,
+          waypoints: toWaypoints(result),
+        },
+      }),
+    }));
+    setTaskId(id);
+    setConfirmUnlock(false);
+    lock();
+  };
+
+  // Déverrouillage en deux clics (confirmation) : la tâche validée est
+  // retirée de la file du robot, les paramètres redeviennent éditables.
+  const handleUnlock = () => {
+    if (!confirmUnlock) { setConfirmUnlock(true); return; }
+    if (ros && connectionState === 'connected' && taskId) {
+      const cmdPub = new ROSLIB.Topic({
+        ros,
+        name: '/task/command',
+        messageType: 'std_msgs/String',
+      });
+      cmdPub.publish(new ROSLIB.Message({
+        data: JSON.stringify({ action: 'remove_task', id: taskId }),
+      }));
+    }
+    setTaskId(null);
+    setConfirmUnlock(false);
+    unlock();
+  };
+
   return (
     <Card>
       <CardContent>
@@ -71,6 +133,7 @@ const WorklinesSidebar: React.FC = () => {
             label="Zone de tonte cible"
             value={params.targetZoneId ?? ''}
             onChange={e => setParams({ targetZoneId: e.target.value || null })}
+            disabled={locked}
           >
             {mowZones.length === 0 && (
               <MenuItem value="" disabled>Aucune zone de tonte</MenuItem>
@@ -89,7 +152,7 @@ const WorklinesSidebar: React.FC = () => {
             <Typography variant="body2" sx={{ flex: 1, fontFamily: 'monospace' }}>
               {params.entryPoint[0].toFixed(6)}, {params.entryPoint[1].toFixed(6)}
             </Typography>
-            <Button size="small" onClick={() => setPickMode('entryPoint')}>
+            <Button size="small" disabled={locked} onClick={() => setPickMode('entryPoint')}>
               Replacer
             </Button>
           </Stack>
@@ -97,7 +160,7 @@ const WorklinesSidebar: React.FC = () => {
           <Button
             variant="outlined"
             startIcon={<MyLocationIcon />}
-            disabled={!targetZone}
+            disabled={!targetZone || locked}
             onClick={() => setPickMode('entryPoint')}
             fullWidth
             sx={{ mb: 1 }}
@@ -121,7 +184,7 @@ const WorklinesSidebar: React.FC = () => {
             <Typography variant="body2" sx={{ flex: 1 }}>
               Bordure n°{params.referenceBorderIndex + 1}
             </Typography>
-            <Button size="small" onClick={() => setPickMode('referenceBorder')}>
+            <Button size="small" disabled={locked} onClick={() => setPickMode('referenceBorder')}>
               Changer
             </Button>
           </Stack>
@@ -129,7 +192,7 @@ const WorklinesSidebar: React.FC = () => {
           <Button
             variant="outlined"
             startIcon={<BorderStyleIcon />}
-            disabled={!targetZone}
+            disabled={!targetZone || locked}
             onClick={() => setPickMode('referenceBorder')}
             fullWidth
             sx={{ mb: 1 }}
@@ -153,6 +216,7 @@ const WorklinesSidebar: React.FC = () => {
           fullWidth
           value={headlandsInput}
           onChange={e => commitHeadlands(e.target.value)}
+          disabled={locked}
           onBlur={() => setHeadlandsInput(String(params.headlands))}
           inputProps={{ min: 0, max: 10, step: 1 }}
           helperText="Demi-tours de dégagement avant les allers-retours"
@@ -167,6 +231,7 @@ const WorklinesSidebar: React.FC = () => {
           fullWidth
           value={widthInput}
           onChange={e => commitWidth(e.target.value)}
+          disabled={locked}
           onBlur={() => setWidthInput(String(params.workingWidthM))}
           inputProps={{ min: 0.1, step: 0.05 }}
           helperText="Espacement entre deux passages"
@@ -179,6 +244,7 @@ const WorklinesSidebar: React.FC = () => {
             <Switch
               checked={params.outlineObstacles}
               onChange={e => setParams({ outlineObstacles: e.target.checked })}
+              disabled={locked}
             />
           }
           label="Contour autour des obstacles"
@@ -195,6 +261,7 @@ const WorklinesSidebar: React.FC = () => {
           fullWidth
           value={marginInput}
           onChange={e => commitMargin(e.target.value)}
+          disabled={locked}
           inputProps={{ min: 0, step: 0.05 }}
           helperText="Vide = demi-largeur de travail. Distance minimale aux zones interdites."
           sx={{ mt: 1.5 }}
@@ -204,10 +271,10 @@ const WorklinesSidebar: React.FC = () => {
           variant="contained"
           fullWidth
           sx={{ mt: 2 }}
-          disabled={!targetZone}
+          disabled={!targetZone || locked}
           onClick={generate}
         >
-          Générer les lignes
+          {locked ? 'Parcours verrouillé' : 'Générer les lignes'}
         </Button>
 
         {result && (
@@ -224,9 +291,56 @@ const WorklinesSidebar: React.FC = () => {
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
               Sur la carte : blanc = passages entiers ; chaque obstacle a sa PAIRE de couleurs propre (côté 1 / côté 2 : bleu/violet, vert/rose, jaune/indigo…) pour les passages s'arrêtant sur son contour ; transitions pointillées de la couleur du côté destination (orange sinon) ; rouge pointillé = contour d'obstacle.
             </Typography>
-            <Button size="small" onClick={clearResult} sx={{ mt: 0.5 }}>
-              Effacer les lignes
-            </Button>
+            {!locked ? (
+              <>
+                <Button
+                  variant="contained"
+                  color="success"
+                  fullWidth
+                  startIcon={<LockIcon />}
+                  sx={{ mt: 1 }}
+                  disabled={connectionState !== 'connected'}
+                  onClick={validateCourse}
+                >
+                  Valider le parcours
+                </Button>
+                {connectionState !== 'connected' && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                    ROS 2 non connecté — la validation ajoute la tâche au robot.
+                  </Typography>
+                )}
+                <Button size="small" onClick={clearResult} sx={{ mt: 0.5 }}>
+                  Effacer les lignes
+                </Button>
+              </>
+            ) : (
+              <>
+                <Alert severity="success" sx={{ mt: 1 }} icon={<LockIcon fontSize="inherit" />}>
+                  Parcours validé et verrouillé — tâche ajoutée à la file de planification.
+                </Alert>
+                <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="warning"
+                    startIcon={<LockOpenIcon />}
+                    onClick={handleUnlock}
+                    sx={{ flex: 1 }}
+                  >
+                    {confirmUnlock ? 'Confirmer ?' : 'Déverrouiller'}
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<RouteIcon />}
+                    onClick={() => setMode('planning')}
+                    sx={{ flex: 1 }}
+                  >
+                    Planifier
+                  </Button>
+                </Stack>
+              </>
+            )}
           </Box>
         )}
       </CardContent>
