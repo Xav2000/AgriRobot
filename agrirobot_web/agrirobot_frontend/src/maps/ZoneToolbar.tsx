@@ -15,10 +15,14 @@ import { useZones } from '../context/ZonesContext';
  * - annulation du dernier sommet, suppression de la zone sélectionnée
  */
 export const ZoneToolbar: React.FC = () => {
-  const { zones, selectedZoneId, editMode, setEditMode, popPoint, deleteZone } = useZones();
+  const {
+    zones, selectedZoneId, editMode, setEditMode, popPoint, deleteZone,
+    corridors, selectedCorridorId, popCorridorPoint, deleteCorridor,
+  } = useZones();
 
   const selectedZone = zones.find(z => z.id === selectedZoneId) ?? null;
-  const hasSelection = selectedZone !== null;
+  const selectedCorridor = corridors.find(c => c.id === selectedCorridorId) ?? null;
+  const hasSelection = selectedZone !== null || selectedCorridor !== null;
 
   return (
     <Box sx={{ position: 'absolute', right: 16, top: 16, zIndex: 1000 }}>
@@ -45,19 +49,31 @@ export const ZoneToolbar: React.FC = () => {
         <Tooltip title="Supprimer le dernier sommet" placement="left">
           <span>
             <IconButton
-              onClick={popPoint}
-              disabled={!hasSelection || !editMode || selectedZone!.points.length === 0}
+              onClick={() => {
+                if (selectedCorridorId) popCorridorPoint();
+                else if (selectedZoneId) popPoint();
+              }}
+              disabled={
+                !hasSelection ||
+                !editMode ||
+                (selectedCorridor
+                  ? selectedCorridor.points.length === 0
+                  : selectedZone!.points.length === 0)
+              }
             >
               <UndoIcon />
             </IconButton>
           </span>
         </Tooltip>
 
-        <Tooltip title="Supprimer la zone sélectionnée" placement="left">
+        <Tooltip title="Supprimer la sélection (zone ou corridor)" placement="left">
           <span>
             <IconButton
               color="error"
-              onClick={() => selectedZoneId && deleteZone(selectedZoneId)}
+              onClick={() => {
+                if (selectedCorridorId) deleteCorridor(selectedCorridorId);
+                else if (selectedZoneId) deleteZone(selectedZoneId);
+              }}
               disabled={!hasSelection}
             >
               <DeleteIcon />

@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 import { Polygon, Polyline, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { useZones } from '../context/ZonesContext';
+import { useZones, CORRIDOR_COLOR } from '../context/ZonesContext';
+import { corridorWarnings } from '../lib/corridors';
 import { useUiMode } from '../context/UiModeContext';
 
 /** Pastille de sommet (glissable). */
@@ -23,11 +24,18 @@ const vertexIcon = (color: string) =>
  */
 const MapClickHandler: React.FC = () => {
   const { mode } = useUiMode();
-  const { editMode, selectedZoneId, appendPoint } = useZones();
+  const {
+    editMode, selectedZoneId, appendPoint,
+    selectedCorridorId, appendCorridorPoint,
+  } = useZones();
 
   useMapEvents({
     click(e) {
-      if (mode === 'zones' && editMode && selectedZoneId) {
+      if (mode !== 'zones' || !editMode) return;
+      // Corridor sélectionné : le clic étend le tracé du corridor.
+      if (selectedCorridorId) {
+        appendCorridorPoint([e.latlng.lat, e.latlng.lng]);
+      } else if (selectedZoneId) {
         appendPoint([e.latlng.lat, e.latlng.lng]);
       }
     },
@@ -47,10 +55,14 @@ const MapClickHandler: React.FC = () => {
  */
 export const ZonesLayer: React.FC = () => {
   const { mode } = useUiMode();
-  const { zones, selectedZoneId, selectZone, editMode, setEditMode, updateVertex, removeVertex } = useZones();
+  const {
+    zones, selectedZoneId, selectZone, editMode, setEditMode, updateVertex, removeVertex,
+    corridors, selectedCorridorId, selectCorridor,
+    updateCorridorVertex, removeCorridorVertex,
+  } = useZones();
   const map = useMap();
 
-  const editing = mode === 'zones' && editMode && selectedZoneId !== null;
+  const editing = mode === 'zones' && editMode && (selectedZoneId !== null || selectedCorridorId !== null);
 
   // Curseur croix pendant l'édition
   useEffect(() => {
@@ -123,6 +135,63 @@ export const ZonesLayer: React.FC = () => {
                       updateVertex(i, [lat, lng]);
                     },
                     contextmenu: () => removeVertex(i),
+                  }}
+                />
+              ))}
+          </React.Fragment>
+        );
+      })}
+
+      {/* Corridors de circulation (étape 6.6) : polyline bleue, cliquable
+          hors édition (sélection + édition), poignées en édition.
+          Invalide (n'entre dans aucune zone / traverse une exclusion) :
+          tracé pointillé + warning dans le tooltip. */}
+      {corridors.map(corridor => {
+        const selected = corridor.id === selectedCorridorId;
+        const warnings = corridorWarnings(corridor, zones);
+        const invalid = warnings.length > 0;
+        return (
+          <React.Fragment key={corridor.id}>
+            {corridor.points.length >= 2 && (
+              <Polyline
+                positions={corridor.points}
+                pathOptions={{
+                  color: CORRIDOR_COLOR,
+                  weight: selected ? 5 : 4,
+                  opacity: invalid ? 0.6 : 0.9,
+                  dashArray: invalid ? '6 6' : undefined,
+                }}
+                eventHandlers={
+                  mode === 'zones' && !editMode
+                    ? {
+                        click: () => {
+                          selectCorridor(corridor.id);
+                          setEditMode(true);
+                        },
+                      }
+                    : undefined
+                }
+              >
+                <Tooltip sticky>
+                  {corridor.name}
+                  {invalid ? ' — invalide : ' + warnings.join(', ') : ' — corridor'}
+                </Tooltip>
+              </Polyline>
+            )}
+
+            {selected && editing &&
+              corridor.points.map((pt, i) => (
+                <Marker
+                  key={corridor.id + '-' + i}
+                  position={pt}
+                  icon={vertexIcon(CORRIDOR_COLOR)}
+                  draggable
+                  eventHandlers={{
+                    dragend: e => {
+                      const { lat, lng } = (e.target as L.Marker).getLatLng();
+                      updateCorridorVertex(i, [lat, lng]);
+                    },
+                    contextmenu: () => removeCorridorVertex(i),
                   }}
                 />
               ))}
