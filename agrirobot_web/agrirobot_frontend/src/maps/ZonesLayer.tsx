@@ -56,6 +56,18 @@ const midpointIcon = (color: string = CORRIDOR_COLOR) =>
     iconAnchor: [5, 5],
   });
 
+/** Portail (point d'entrée) d'une zone de tonte : même pilule que le
+ *  point d'entrée des lignes de guidage (bleu foncé, liseré blanc) —
+ *  reconnaissable entre tous les marqueurs de la carte. */
+const portailIcon = L.divIcon({
+  className: 'zone-vertex',
+  html:
+    '<div style="width:16px;height:16px;border-radius:50%;background:#0D47A1' +
+    ';border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.6)"></div>',
+  iconSize: [16, 16],
+  iconAnchor: [8, 8],
+});
+
 /**
  * Clic sur la carte (seulement si le mode AJOUT est actif dans la
  * toolbar — désactivé à l'édition d'un objet existant, pour ne pas
@@ -146,13 +158,16 @@ const CorridorRubberBand: React.FC = () => {
  *   insérer un sommet, aimantation des points sur les portails
  * - tooltips MASQUÉS pendant l'édition : sinon le label sticky suit le
  *   curseur et masque le portail (point d'entrée) qu'on veut cliquer
+ * - portails (points d'entrée mémorisés) des zones de tonte affichés
+ *   dans les modes où les chemins se dessinent ; un clic dessus pendant
+ *   l'édition d'un chemin pose un point exactement sur le portail
  * - curseur croix pendant l'édition
  */
 export const ZonesLayer: React.FC = () => {
   const { mode } = useUiMode();
   const {
     zones, selectedZoneId, selectZone, editMode, setEditMode, setAddMode, updateVertex, removeVertex,
-    corridors, selectedCorridorId, selectCorridor,
+    corridors, selectedCorridorId, selectCorridor, appendCorridorPoint,
     updateCorridorVertex, removeCorridorVertex, insertCorridorVertex,
     insertVertex,
   } = useZones();
@@ -261,6 +276,35 @@ export const ZonesLayer: React.FC = () => {
                 );
               })}
           </React.Fragment>
+        );
+      })}
+
+      {/* Portails (points d'entrée mémorisés) des zones de tonte :
+          ils n'étaient rendus nulle part hors du mode lignes de guidage
+          (impossible de viser l'aimantation). Un Marker Leaflet AVALE
+          le clic — la carte ne le reçoit jamais — d'où le handler dédié :
+          pendant l'édition d'un chemin sélectionné, un clic sur le
+          portail pose un point EXACTEMENT dessus, même sans le mode
+          « + » (cliquer un portail est un geste délibéré). */}
+      {corridorModes && zones.map(zone => {
+        const ep = zoneEntryPoints[zone.id];
+        if (zone.type !== 'mow' || !ep) return null;
+        return (
+          <Marker
+            key={zone.id + '-portail'}
+            position={ep}
+            icon={portailIcon}
+            zIndexOffset={500}
+            eventHandlers={{
+              click: () => {
+                if (editMode && selectedCorridorId) {
+                  appendCorridorPoint(ep);
+                }
+              },
+            }}
+          >
+            {!editMode && <Tooltip>Portail — {zone.name}</Tooltip>}
+          </Marker>
         );
       })}
 

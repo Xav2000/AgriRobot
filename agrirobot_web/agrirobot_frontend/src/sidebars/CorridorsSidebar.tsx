@@ -115,8 +115,10 @@ const CorridorsSidebar: React.FC = () => {
           Édition : glisse les pastilles pour déplacer, pastilles translucides
           pour insérer un point, clic droit pour supprimer. Pour prolonger le
           tracé au clic carte, active le bouton « + » de la toolbar (actif
-          automatiquement à la création). Un point posé près du portail
-          (point d'entrée) d'une zone s'y colle automatiquement.
+          automatiquement à la création). Les portails (points d'entrée) des
+          zones sont affichés sur la carte : un clic direct sur un portail
+          pendant l'édition d'un chemin y pose un point exactement, et un
+          clic simple à côté s'y colle (aimantation).
         </Typography>
       </CardContent>
     </Card>
