@@ -831,6 +831,21 @@ export function generateWorklines(
     }
   }
 
+  /* --- Retour au portail (choix utilisateur, suite 6.6) : une fois
+     tous les tracés terminés, le robot revient au point d'entrée —
+     c'est là qu'il s'est positionné avant d'attaquer les contours, et
+     c'est là que le chemin de liaison le récupère pour sortir. La
+     mission d'une zone est ainsi complète (entrée, travail, retour) :
+     la gestion des tâches n'a plus à s'occuper de l'intérieur des
+     polygones. Transition contournante comme les autres : jamais à
+     travers une exclusion (S0). */
+  if (params.entryPoint && lastEnd) {
+    const portail = toLocal(params.entryPoint, origin);
+    if (dist(lastEnd, portail) > 1e-6) {
+      elems.push({ kind: 'transition', pts: routeTransition(lastEnd, portail), closed: false, phase: 0 });
+    }
+  }
+
   /* --- 4. Sortie : conversion lat/lng + statistiques --- */
   const lines: Workline[] = elems.map(el => ({
     kind: el.kind,

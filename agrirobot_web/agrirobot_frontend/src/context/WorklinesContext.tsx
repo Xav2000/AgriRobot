@@ -38,6 +38,11 @@ export interface WorklinesParams {
   obstacleMarginM: number | null;
 }
 
+/** Portails (points d'entrée) mémorisés par zone : [zoneId -> [lat, lng]].
+ *  Sert à l'aimantation des chemins de liaison sur les portails et à la
+ *  restauration du point d'entrée au changement de zone cible. */
+export type ZoneEntryPoints = Record<string, [number, number]>;
+
 const DEFAULT_PARAMS: WorklinesParams = {
   targetZoneId: null,
   entryPoint: null,
@@ -54,8 +59,9 @@ interface WorklinesContextValue {
   setPickMode: (mode: PickMode) => void;
   /**
    * Fusionne un patch dans les paramètres. Ignoré si le parcours est
-   * verrouillé. Changer de zone cible réinitialise le point d'entrée,
-   * la bordure de référence, le résultat et le verrou.
+   * verrouillé. Changer de zone cible réinitialise la bordure de
+   * référence, le résultat et le verrou ; le point d'entrée est
+   * RESTAURÉ depuis le portail mémorisé de la zone s'il existe.
    */
   setParams: (patch: Partial<WorklinesParams>) => void;
   resetParams: () => void;
@@ -74,6 +80,8 @@ interface WorklinesContextValue {
   lock: () => void;
   /** Déverrouille (retour en prévisualisation éditable) */
   unlock: () => void;
+  /** Portail (point d'entrée) mémorisé de chaque zone déjà configurée */
+  zoneEntryPoints: ZoneEntryPoints;
 }
 
 const WorklinesContext = createContext<WorklinesContextValue | null>(null);
@@ -84,6 +92,8 @@ export const WorklinesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [pickMode, setPickModeState] = useState<PickMode>(null);
   const [result, setResult] = useState<WorklinesResult | null>(null);
   const [locked, setLocked] = useState(false);
+  // Portail de chaque zone déjà configurée (persiste au changement de zone)
+  const [zoneEntryPoints, setZoneEntryPoints] = useState<ZoneEntryPoints>({});
 
   // Verrouillé : plus aucune sélection sur la carte
   const setPickMode = useCallback((mode: PickMode) => {
@@ -93,11 +103,27 @@ export const WorklinesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const setParams = useCallback((patch: Partial<WorklinesParams>) => {
     if (locked) return;
+    // Mémorise le portail de la zone cible à chaque placement du point
+    // d'entrée : il servira à l'aimantation des chemins de liaison et
+    // sera restauré si on revient sur cette zone.
+    if (patch.entryPoint && params.targetZoneId) {
+      const zid = params.targetZoneId;
+      const ep = patch.entryPoint;
+      setZoneEntryPoints(m => {
+        const cur = m[zid];
+        if (cur && cur[0] === ep[0] && cur[1] === ep[1]) return m;
+        return { ...m, [zid]: ep };
+      });
+    }
     setParamsState(prev => {
       const next = { ...prev, ...patch };
-      // Le point d'entrée et la bordure de référence sont liés à la zone cible.
+      // Le point d'entrée et la bordure de référence sont liés à la zone
+      // cible. Au changement de zone : bordure reset, point d'entrée
+      // restauré depuis le portail mémorisé s'il existe.
       if (patch.targetZoneId !== undefined && patch.targetZoneId !== prev.targetZoneId) {
-        next.entryPoint = null;
+        next.entryPoint = patch.targetZoneId != null
+          ? (zoneEntryPoints[patch.targetZoneId] ?? null)
+          : null;
         next.referenceBorderIndex = null;
       }
       return next;
@@ -107,7 +133,7 @@ export const WorklinesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setResult(null);
       setLocked(false);
     }
-  }, [locked]);
+  }, [locked, params, zoneEntryPoints]);
 
   const generate = useCallback(() => {
     if (locked) return;
@@ -131,7 +157,7 @@ export const WorklinesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   return (
     <WorklinesContext.Provider
-      value={{ params, pickMode, setPickMode, setParams, resetParams, result, generate, clearResult, locked, lock, unlock }}
+      value={{ params, pickMode, setPickMode, setParams, resetParams, result, generate, clearResult, locked, lock, unlock, zoneEntryPoints }}
     >
       {children}
     </WorklinesContext.Provider>
