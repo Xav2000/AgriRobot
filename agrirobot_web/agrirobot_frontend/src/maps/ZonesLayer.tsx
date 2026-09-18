@@ -11,7 +11,7 @@ import { useUiMode } from '../context/UiModeContext';
 const SNAP_PX = 20;
 
 /** Modes dans lesquels les chemins de liaison sont dessinables/éditables. */
-const CORRIDOR_MODES = ['zones', 'planning', 'corridors'];
+export const CORRIDOR_MODES = ['zones', 'planning', 'corridors'];
 
 /** Aimante le point sur le portail d'une zone s'il est assez proche. */
 const snapToPortail = (

@@ -118,7 +118,9 @@ const CorridorsSidebar: React.FC = () => {
           automatiquement à la création). Les portails (points d'entrée) des
           zones sont affichés sur la carte : un clic direct sur un portail
           pendant l'édition d'un chemin y pose un point exactement, et un
-          clic simple à côté s'y colle (aimantation).
+          clic simple à côté s'y colle (aimantation). Les croisements entre chemins créent
+          automatiquement une jonction (point blanc), de même que deux
+          points de chemins à moins de 1 m l'un de l'autre.
         </Typography>
       </CardContent>
     </Card>
