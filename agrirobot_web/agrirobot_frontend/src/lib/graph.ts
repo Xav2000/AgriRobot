@@ -85,7 +85,14 @@ const segIntersect = (s1: Seg, s2: Seg): [number, number] | null => {
 };
 
 /** Construit le graphe à partir des chemins (points [lat, lng]). */
-export const buildCorridorGraph = (corridors: { points: Pt[] }[]): CorridorGraph => {
+export const buildCorridorGraph = (
+  corridors: { points: Pt[] }[],
+  /**
+   * Points additionnels raccordés au réseau s'ils sont à moins de
+   * JUNCTION_M d'un segment (la station de recharge, étape 6.8).
+   */
+  extraPoints: Pt[] = []
+): CorridorGraph => {
   const all = corridors.flatMap(c => c.points);
   if (all.length < 2) return { nodes: [], edges: [], degree: [] };
   const ref = all[0];
@@ -136,24 +143,32 @@ export const buildCorridorGraph = (corridors: { points: Pt[] }[]): CorridorGraph
   // moins de JUNCTION_M (jonction en T). Jamais aux segments de leur
   // propre chemin (contiguïté naturelle), et les points intérieurs ne
   // s'y raccrochent pas (deux chemins parallèles ne fusionnent pas).
+  const hookUp = (ni: number, ownCi: number) => {
+    const e = cand[ni];
+    segs.forEach((s, si) => {
+      if (segCorridor[si] === ownCi) return;
+      const dx = s.bx - s.ax, dy = s.by - s.ay;
+      const len2 = dx * dx + dy * dy;
+      if (len2 === 0) return;
+      const t = ((e.x - s.ax) * dx + (e.y - s.ay) * dy) / len2;
+      if (t < 0 || t > 1) return;
+      const px = s.ax + t * dx, py = s.ay + t * dy;
+      if (Math.hypot(e.x - px, e.y - py) < JUNCTION_M) {
+        cand[ni].onSeg.add(si);
+      }
+    });
+  };
   corridors.forEach((c, ci) => {
     if (c.points.length < 2) return;
-    const endIdx = [candIndexOf[ci][0], candIndexOf[ci][c.points.length - 1]];
-    endIdx.forEach(ni => {
-      const e = cand[ni];
-      segs.forEach((s, si) => {
-        if (segCorridor[si] === ci) return;
-        const dx = s.bx - s.ax, dy = s.by - s.ay;
-        const len2 = dx * dx + dy * dy;
-        if (len2 === 0) return;
-        const t = ((e.x - s.ax) * dx + (e.y - s.ay) * dy) / len2;
-        if (t < 0 || t > 1) return;
-        const px = s.ax + t * dx, py = s.ay + t * dy;
-        if (Math.hypot(e.x - px, e.y - py) < JUNCTION_M) {
-          cand[ni].onSeg.add(si);
-        }
-      });
-    });
+    hookUp(candIndexOf[ci][0], ci);
+    hookUp(candIndexOf[ci][c.points.length - 1], ci);
+  });
+  // Points additionnels (station) : raccordés à TOUS les segments à
+  // moins de JUNCTION_M — pas de chemin propriétaire.
+  extraPoints.forEach(p => {
+    const [x, y] = project(p, ref);
+    cand.push({ x, y, onSeg: new Set<number>() });
+    hookUp(cand.length - 1, -1);
   });
 
   // Fusion par proximité (< JUNCTION_M) — union-find, single linkage :
@@ -270,4 +285,31 @@ export const shortestPath = (g: CorridorGraph, from: Pt, to: Pt): PathResult | n
   const nodeIndices: number[] = [];
   for (let v = goal; v >= 0; v = prev[v]) nodeIndices.unshift(v);
   return { nodeIndices, path: nodeIndices.map(i => g.nodes[i]), length: dist[goal] };
+};
+
+/** Distance métrique d'un point au réseau de chemins (projection sur
+ *  les segments). Infinity si le réseau est vide. Sert à vérifier que
+ *  la station est bien raccordée (<= JUNCTION_M). */
+export const distanceToNetwork = (corridors: { points: Pt[] }[], p: Pt): number => {
+  const all = corridors.flatMap(c => c.points);
+  if (all.length < 2) return Infinity;
+  const ref = all[0];
+  const [x, y] = project(p, ref);
+  let best = Infinity;
+  corridors.forEach(c => {
+    for (let i = 0; i + 1 < c.points.length; i++) {
+      const [ax, ay] = project(c.points[i], ref);
+      const [bx, by] = project(c.points[i + 1], ref);
+      const dx = bx - ax, dy = by - ay;
+      const len2 = dx * dx + dy * dy;
+      let d: number;
+      if (len2 === 0) d = Math.hypot(x - ax, y - ay);
+      else {
+        const t = Math.min(1, Math.max(0, ((x - ax) * dx + (y - ay) * dy) / len2));
+        d = Math.hypot(x - (ax + t * dx), y - (ay + t * dy));
+      }
+      if (d < best) best = d;
+    }
+  });
+  return best;
 };

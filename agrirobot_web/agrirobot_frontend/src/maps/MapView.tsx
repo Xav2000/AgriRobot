@@ -7,6 +7,7 @@ import { MissionLayer } from './MissionLayer';
 import { ZonesLayer } from './ZonesLayer';
 import { WorklinesLayer } from './WorklinesLayer';
 import { GraphLayer } from './GraphLayer';
+import { StationLayer } from './StationLayer';
 import 'leaflet/dist/leaflet.css';
 
 // Fix pour les icônes Leaflet (nécessaire avec Webpack)
@@ -102,6 +103,8 @@ const MapView: React.FC = () => {
       <WorklinesLayer />
       {/* Jonctions automatiques du graphe de circulation (étape 6.7) */}
       <GraphLayer />
+      {/* Station de recharge (étape 6.8) */}
+      <StationLayer />
       {/* Parcours de la mission + progression des tâches */}
       <MissionLayer />
       {robotPosition && (

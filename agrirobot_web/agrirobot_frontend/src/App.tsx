@@ -15,6 +15,7 @@ import { useColorMode } from './ColorModeContext';
 import { UiModeProvider, useUiMode } from './context/UiModeContext';
 import { ZonesProvider } from './context/ZonesContext';
 import { WorklinesProvider } from './context/WorklinesContext';
+import { StationProvider } from './context/StationContext';
 
 /**
  * Les sidebars restent montées (état préservé, notamment la file
@@ -72,6 +73,7 @@ function App() {
     <UiModeProvider>
       <ZonesProvider>
         <WorklinesProvider>
+          <StationProvider>
           <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: 'background.default' }}>
             <AppBar position="static" color="default" elevation={0} sx={{ bgcolor: 'background.paper' }}>
               <Toolbar sx={{ position: 'relative' }}>
@@ -133,6 +135,7 @@ function App() {
               </Box>
             </Box>
           </Box>
+          </StationProvider>
         </WorklinesProvider>
       </ZonesProvider>
     </UiModeProvider>

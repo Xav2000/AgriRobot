@@ -4,8 +4,11 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AltRouteIcon from '@mui/icons-material/AltRoute';
+import BoltIcon from '@mui/icons-material/Bolt';
 import { useZones, CORRIDOR_COLOR } from '../context/ZonesContext';
 import { corridorWarnings } from '../lib/corridors';
+import { distanceToNetwork, JUNCTION_M } from '../lib/graph';
+import { useStation } from '../context/StationContext';
 import { useUiMode } from '../context/UiModeContext';
 
 /**
@@ -19,6 +22,7 @@ import { useUiMode } from '../context/UiModeContext';
  */
 const CorridorsSidebar: React.FC = () => {
   const { goBack } = useUiMode();
+  const { station, placing, setPlacing } = useStation();
   const {
     zones, corridors, selectedCorridorId, selectCorridor, selectZone,
     selectedZoneId, setEditMode, setAddMode, addCorridor,
@@ -58,6 +62,38 @@ const CorridorsSidebar: React.FC = () => {
         >
           Ajouter un chemin
         </Button>
+
+        {/* Station de recharge (étape 6.8) : placement au clic, état de
+            raccordement au réseau de chemins. */}
+        <Button
+          variant={placing ? 'contained' : 'outlined'}
+          startIcon={<BoltIcon />}
+          onClick={() => setPlacing(!placing)}
+          fullWidth
+          sx={{ mb: 1.5 }}
+          style={placing
+            ? { backgroundColor: '#4CAF50' }
+            : { color: '#4CAF50', borderColor: '#4CAF50' }}
+        >
+          {station ? 'Déplacer la station' : 'Placer la station'}
+        </Button>
+
+        {station && (
+          (() => {
+            const d = distanceToNetwork(corridors, station.position);
+            return (
+              <Alert
+                severity={d <= JUNCTION_M ? 'success' : 'warning'}
+                sx={{ mb: 2 }}
+              >
+                {d <= JUNCTION_M
+                  ? 'Station reliée au réseau de chemins.'
+                  : 'Station isolée : à ' + d.toFixed(1) +
+                    ' m du chemin le plus proche (raccordement automatique à moins de 1 m).'}
+              </Alert>
+            );
+          })()
+        )}
 
         {corridors.length === 0 ? (
           <Alert severity="info">
@@ -120,7 +156,9 @@ const CorridorsSidebar: React.FC = () => {
           pendant l'édition d'un chemin y pose un point exactement, et un
           clic simple à côté s'y colle (aimantation). Les croisements entre chemins créent
           automatiquement une jonction (point blanc), de même que deux
-          points de chemins à moins de 1 m l'un de l'autre.
+          points de chemins à moins de 1 m l'un de l'autre. La station (pilule
+          verte à éclair) se déplace en glissant ; sa flèche de sortie
+          tourne de 45° à chaque clic.
         </Typography>
       </CardContent>
     </Card>
