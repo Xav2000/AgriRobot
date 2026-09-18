@@ -4,6 +4,7 @@ import {
   DialogContentText, DialogActions, Button,
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
+import AddLocationIcon from '@mui/icons-material/AddLocation';
 import UndoIcon from '@mui/icons-material/Undo';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import { useZones } from '../context/ZonesContext';
@@ -12,9 +13,13 @@ import { useZones } from '../context/ZonesContext';
  * Toolbar d'édition, flottante sur le côté droit de la carte
  * (style OpenMowerApp). Visible en mode zones (polygones) et en mode
  * planification (chemins de liaison).
- * - bouton Édition : active/désactive l'édition (poignées, ajout de
- *   points au clic). Désactivée = carte propre et cliquable sans effet,
+ * - bouton Édition : active/désactive l'édition (poignées
+ *   déplaçables). Désactivée = carte propre et cliquable sans effet,
  *   utile pour créer une zone dans une autre sans détourner les clics.
+ * - bouton Ajout : le clic carte crée des points. Activé
+ *   automatiquement à la création d'un objet, DÉSACTIVÉ quand on
+ *   revient éditer un objet existant (pas de sommets parasites à
+ *   côté de ceux qu'on déplace).
  * - annulation du dernier point
  * - suppression de la sélection (zone ou chemin de liaison), AVEC
  *   confirmation : un appui trop rapide ne détruit plus le travail
@@ -22,7 +27,7 @@ import { useZones } from '../context/ZonesContext';
  */
 export const ZoneToolbar: React.FC = () => {
   const {
-    zones, selectedZoneId, editMode, setEditMode, popPoint, deleteZone,
+    zones, selectedZoneId, editMode, setEditMode, addMode, setAddMode, popPoint, deleteZone,
     corridors, selectedCorridorId, popCorridorPoint, deleteCorridor,
   } = useZones();
 
@@ -60,6 +65,25 @@ export const ZoneToolbar: React.FC = () => {
           </IconButton>
         </Tooltip>
 
+        <Tooltip
+          title={
+            addMode
+              ? "Ajout de points ACTIF — le clic carte crée un point (désactiver pour déplacer seulement)"
+              : "Activer l'ajout de points — le clic carte créera un nouveau point"
+          }
+          placement="left"
+        >
+          <span>
+            <IconButton
+              color={addMode ? 'primary' : 'default'}
+              onClick={() => setAddMode(!addMode)}
+              disabled={!hasSelection || !editMode}
+            >
+              <AddLocationIcon />
+            </IconButton>
+          </span>
+        </Tooltip>
+
         <Tooltip title="Supprimer le dernier point" placement="left">
           <span>
             <IconButton
@@ -70,6 +94,7 @@ export const ZoneToolbar: React.FC = () => {
               disabled={
                 !hasSelection ||
                 !editMode ||
+                !addMode ||
                 (selectedCorridor
                   ? selectedCorridor.points.length === 0
                   : selectedZone!.points.length === 0)

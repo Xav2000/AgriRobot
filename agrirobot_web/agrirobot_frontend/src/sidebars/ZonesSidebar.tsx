@@ -25,7 +25,7 @@ import { useUiMode } from '../context/UiModeContext';
 const ZonesSidebar: React.FC = () => {
   const { goBack, setMode } = useUiMode();
   const {
-    zones, selectedZoneId, selectZone, setEditMode, addZone, renameZone, deleteZone, editMode,
+    zones, selectedZoneId, selectZone, setEditMode, setAddMode, addZone, renameZone, deleteZone, editMode,
     corridors,
   } = useZones();
 
@@ -78,9 +78,11 @@ const ZonesSidebar: React.FC = () => {
               <Paper
                 key={zone.id}
                 onClick={() => {
-                  // Sélection depuis la liste = édition directe de la zone.
+                  // Sélection depuis la liste = édition directe de la zone,
+                  // sans ajout de sommets (déplacement des poignées).
                   selectZone(zone.id);
                   setEditMode(true);
+                  setAddMode(false);
                 }}
                 sx={{
                   display: 'flex',
@@ -162,13 +164,14 @@ const ZonesSidebar: React.FC = () => {
             />
             {editMode ? (
               <Typography variant="caption" color="text.secondary">
-                Édition active : clique sur la carte pour ajouter un sommet. Glisse les
-                pastilles pour les déplacer, clic droit sur une pastille pour la supprimer.
+                Édition active : glisse les pastilles pour déplacer, clic droit pour
+                supprimer, pastilles translucides pour insérer un sommet. Pour ajouter
+                des sommets au clic carte, active le bouton « + » de la toolbar.
               </Typography>
             ) : (
               <Typography variant="caption" color="text.secondary">
                 Édition inactive : active le bouton crayon (à droite de la carte) pour
-                ajouter ou déplacer des sommets.
+                déplacer les sommets.
               </Typography>
             )}
           </Box>

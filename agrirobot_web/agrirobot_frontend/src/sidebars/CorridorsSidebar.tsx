@@ -21,7 +21,7 @@ const CorridorsSidebar: React.FC = () => {
   const { goBack } = useUiMode();
   const {
     zones, corridors, selectedCorridorId, selectCorridor, selectZone,
-    selectedZoneId, setEditMode, addCorridor,
+    selectedZoneId, setEditMode, setAddMode, addCorridor,
   } = useZones();
 
   // En mode chemins, on n'édite pas les polygones : la sélection de zone
@@ -72,9 +72,11 @@ const CorridorsSidebar: React.FC = () => {
                 <Paper
                   key={corridor.id}
                   onClick={() => {
-                    // Sélection = édition directe sur la carte.
+                    // Sélection = édition directe sur la carte, sans
+                    // ajout de points (déplacement des poignées).
                     selectCorridor(corridor.id);
                     setEditMode(true);
+                    setAddMode(false);
                   }}
                   sx={{
                     display: 'flex',
@@ -110,12 +112,11 @@ const CorridorsSidebar: React.FC = () => {
         )}
 
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-          Édition : clics sur la carte pour prolonger le tracé, pastilles pour
-          déplacer, pastilles translucides pour insérer un point, clic droit
-          sur une pastille pour supprimer. Un point posé près du portail
-          (point d'entrée) d'une zone s'y colle automatiquement. Un chemin
-          valide rentre dans une zone de tonte et ne traverse jamais une
-          exclusion.
+          Édition : glisse les pastilles pour déplacer, pastilles translucides
+          pour insérer un point, clic droit pour supprimer. Pour prolonger le
+          tracé au clic carte, active le bouton « + » de la toolbar (actif
+          automatiquement à la création). Un point posé près du portail
+          (point d'entrée) d'une zone s'y colle automatiquement.
         </Typography>
       </CardContent>
     </Card>

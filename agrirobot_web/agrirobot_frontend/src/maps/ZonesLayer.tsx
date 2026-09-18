@@ -57,7 +57,9 @@ const midpointIcon = (color: string = CORRIDOR_COLOR) =>
   });
 
 /**
- * Clic sur la carte :
+ * Clic sur la carte (seulement si le mode AJOUT est actif dans la
+ * toolbar — désactivé à l'édition d'un objet existant, pour ne pas
+ * créer des sommets parasites à côté de ceux qu'on déplace) :
  * - chemin de liaison sélectionné (modes zones, planification et
  *   chemins, édition active) : prolonge le tracé, avec aimantation sur
  *   le portail d'une zone si le clic est proche ;
@@ -69,7 +71,7 @@ const midpointIcon = (color: string = CORRIDOR_COLOR) =>
 const MapClickHandler: React.FC = () => {
   const { mode } = useUiMode();
   const {
-    editMode, selectedZoneId, appendPoint, zones,
+    editMode, addMode, selectedZoneId, appendPoint, zones,
     selectedCorridorId, appendCorridorPoint,
   } = useZones();
   const { zoneEntryPoints } = useWorklines();
@@ -77,7 +79,7 @@ const MapClickHandler: React.FC = () => {
 
   useMapEvents({
     click(e) {
-      if (!editMode) return;
+      if (!editMode || !addMode) return;
       if (selectedCorridorId && CORRIDOR_MODES.includes(mode)) {
         appendCorridorPoint(
           snapToPortail(map, [e.latlng.lat, e.latlng.lng], zones, zoneEntryPoints));
@@ -100,13 +102,13 @@ const MapClickHandler: React.FC = () => {
  */
 const CorridorRubberBand: React.FC = () => {
   const { mode } = useUiMode();
-  const { zones, corridors, selectedCorridorId, editMode } = useZones();
+  const { zones, corridors, selectedCorridorId, editMode, addMode } = useZones();
   const { zoneEntryPoints } = useWorklines();
   const map = useMap();
   const [cursor, setCursor] = useState<[number, number] | null>(null);
 
   const corridor = corridors.find(c => c.id === selectedCorridorId) ?? null;
-  const drawing = editMode && corridor !== null && corridor.points.length >= 1
+  const drawing = editMode && addMode && corridor !== null && corridor.points.length >= 1
     && CORRIDOR_MODES.includes(mode);
 
   useMapEvents({
@@ -147,7 +149,7 @@ const CorridorRubberBand: React.FC = () => {
 export const ZonesLayer: React.FC = () => {
   const { mode } = useUiMode();
   const {
-    zones, selectedZoneId, selectZone, editMode, setEditMode, updateVertex, removeVertex,
+    zones, selectedZoneId, selectZone, editMode, setEditMode, setAddMode, updateVertex, removeVertex,
     corridors, selectedCorridorId, selectCorridor,
     updateCorridorVertex, removeCorridorVertex, insertCorridorVertex,
     insertVertex,
@@ -196,6 +198,7 @@ export const ZonesLayer: React.FC = () => {
                         click: () => {
                           selectZone(zone.id);
                           setEditMode(true);
+                          setAddMode(false);
                         },
                       }
                     : undefined
@@ -281,6 +284,7 @@ export const ZonesLayer: React.FC = () => {
                         click: () => {
                           selectCorridor(corridor.id);
                           setEditMode(true);
+                          setAddMode(false);
                         },
                       }
                     : undefined

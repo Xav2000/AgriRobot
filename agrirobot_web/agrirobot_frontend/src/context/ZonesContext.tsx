@@ -44,6 +44,15 @@ interface ZonesContextValue {
    */
   editMode: boolean;
   setEditMode: (v: boolean) => void;
+  /**
+   * Ajout de points au clic carte : activé automatiquement à la CRÉATION
+   * d'une zone ou d'un chemin (on enchaîne les clics de tracé),
+   * désactivé à l'édition d'un objet existant (déplacement des poignées
+   * sans créer de sommets parasites à côté — choix utilisateur).
+   * Bascule via le bouton dédié de la toolbar.
+   */
+  addMode: boolean;
+  setAddMode: (v: boolean) => void;
   selectZone: (id: string | null) => void;
   addZone: (type?: ZoneType) => void;
   renameZone: (id: string, name: string) => void;
@@ -84,6 +93,7 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [zones, setZones] = useState<Zone[]>([]);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
+  const [addMode, setAddMode] = useState(false);
   const [corridors, setCorridors] = useState<Corridor[]>([]);
   const [selectedCorridorId, setSelectedCorridorId] = useState<string | null>(null);
 
@@ -101,8 +111,10 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
     setZones(prev => [...prev, zone]);
     setSelectedZoneId(zone.id);
-    // La création démarre directement l'édition de la nouvelle zone.
+    // La création démarre directement l'édition de la nouvelle zone,
+    // en mode ajout de sommets (on enchaîne les clics de tracé).
     setEditMode(true);
+    setAddMode(true);
   }, [zones]);
 
   const selectZone = useCallback((id: string | null) => {
@@ -180,6 +192,7 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setSelectedCorridorId(corridor.id);
     setSelectedZoneId(null);
     setEditMode(true);
+    setAddMode(true);
   }, [corridors]);
 
   const renameCorridor = useCallback((id: string, name: string) => {
@@ -249,6 +262,8 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     selectedZoneId,
     editMode,
     setEditMode,
+    addMode,
+    setAddMode,
     selectZone,
     addZone,
     renameZone,
