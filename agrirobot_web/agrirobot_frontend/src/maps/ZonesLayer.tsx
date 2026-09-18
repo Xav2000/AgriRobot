@@ -44,13 +44,13 @@ const vertexIcon = (color: string) =>
     iconAnchor: [7, 7],
   });
 
-/** Pastille médiane translucide entre deux sommets d'un chemin de
- *  liaison : un clic insère un nouveau sommet à cet endroit. */
-const midpointIcon = () =>
+/** Pastille médiane translucide entre deux sommets (chemin de liaison
+ *  ou contour de zone) : un clic insère un nouveau sommet à cet endroit. */
+const midpointIcon = (color: string = CORRIDOR_COLOR) =>
   L.divIcon({
     className: 'zone-vertex',
     html:
-      '<div style="width:10px;height:10px;border-radius:50%;background:' + CORRIDOR_COLOR +
+      '<div style="width:10px;height:10px;border-radius:50%;background:' + color +
       ';opacity:0.45;border:1px solid #fff"></div>',
     iconSize: [10, 10],
     iconAnchor: [5, 5],
@@ -150,6 +150,7 @@ export const ZonesLayer: React.FC = () => {
     zones, selectedZoneId, selectZone, editMode, setEditMode, updateVertex, removeVertex,
     corridors, selectedCorridorId, selectCorridor,
     updateCorridorVertex, removeCorridorVertex, insertCorridorVertex,
+    insertVertex,
   } = useZones();
   const { zoneEntryPoints } = useWorklines();
   const map = useMap();
@@ -232,6 +233,23 @@ export const ZonesLayer: React.FC = () => {
                   }}
                 />
               ))}
+
+            {/* Pastilles médianes : un clic insère un sommet entre deux
+                sommets du contour (y compris entre le dernier et le
+                premier : le polygone est fermé) */}
+            {selected && editing && mode === 'zones' && zone.points.length >= 3 &&
+              zone.points.map((pt, i) => {
+                const next = zone.points[(i + 1) % zone.points.length];
+                const mid: [number, number] = [(pt[0] + next[0]) / 2, (pt[1] + next[1]) / 2];
+                return (
+                  <Marker
+                    key={zone.id + '-mid-' + i}
+                    position={mid}
+                    icon={midpointIcon(zone.color)}
+                    eventHandlers={{ click: () => insertVertex(i + 1, mid) }}
+                  />
+                );
+              })}
           </React.Fragment>
         );
       })}

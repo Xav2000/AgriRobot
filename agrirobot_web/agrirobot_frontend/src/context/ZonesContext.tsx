@@ -52,6 +52,8 @@ interface ZonesContextValue {
   popPoint: () => void;
   removeVertex: (index: number) => void;
   updateVertex: (index: number, point: [number, number]) => void;
+  /** Insère un sommet à l'index donné (point médian cliqué) */
+  insertVertex: (index: number, point: [number, number]) => void;
   /** Chemins de liaison (étape 6.6) — édition depuis la planification */
   corridors: Corridor[];
   selectedCorridorId: string | null;
@@ -154,6 +156,18 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
   }, [selectedZoneId]);
 
+  const insertVertex = useCallback((index: number, point: [number, number]) => {
+    if (!selectedZoneId) return;
+    setZones(prev =>
+      prev.map(z => {
+        if (z.id !== selectedZoneId) return z;
+        const points = [...z.points];
+        points.splice(index, 0, point);
+        return { ...z, points };
+      })
+    );
+  }, [selectedZoneId]);
+
   // ---- Chemins de liaison : même mécanique que les zones (polyline ouverte) ----
 
   const addCorridor = useCallback(() => {
@@ -243,6 +257,7 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     popPoint,
     removeVertex,
     updateVertex,
+    insertVertex,
     corridors,
     selectedCorridorId,
     addCorridor,
