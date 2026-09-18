@@ -53,15 +53,28 @@ const DEFAULT_PARAMS: WorklinesParams = {
   obstacleMarginM: null,
 };
 
+/**
+ * Parcours validé (étape 6.4) mémorisé PAR ZONE : chaque zone garde ses
+ * propres paramètres, son résultat et l'identifiant de la tâche envoyée
+ * au robot. Le verrouillage est donc par zone, pas global — on peut
+ * valider la zone A puis configurer et valider la zone B sans déverrouiller A.
+ */
+export interface ValidatedCourse {
+  params: WorklinesParams;
+  result: WorklinesResult;
+  /** Id de la tâche ajoutée à la file du robot ('wl-…'), retirée au déverrouillage */
+  taskId?: string;
+}
+
 interface WorklinesContextValue {
   params: WorklinesParams;
   pickMode: PickMode;
   setPickMode: (mode: PickMode) => void;
   /**
-   * Fusionne un patch dans les paramètres. Ignoré si le parcours est
-   * verrouillé. Changer de zone cible réinitialise la bordure de
-   * référence, le résultat et le verrou ; le point d'entrée est
-   * RESTAURÉ depuis le portail mémorisé de la zone s'il existe.
+   * Fusionne un patch dans les paramètres. Ignoré si le parcours de la
+   * zone courante est verrouillé, SAUF targetZoneId : changer de zone
+   * recharge le parcours validé de la nouvelle zone s'il existe, sinon
+   * une configuration fraîche avec le portail mémorisé restauré.
    */
   setParams: (patch: Partial<WorklinesParams>) => void;
   resetParams: () => void;
@@ -71,15 +84,19 @@ interface WorklinesContextValue {
   generate: () => void;
   clearResult: () => void;
   /**
-   * Étape 6.4 — parcours VALIDÉ par l'opérateur : lignes verrouillées
-   * (paramètres et génération gelés) jusqu'au déverrouillage ou au
-   * changement de zone cible.
+   * Étape 6.4 — la zone COURANTE a un parcours validé : ses paramètres
+   * et son résultat sont gelés jusqu'au déverrouillage.
    */
   locked: boolean;
-  /** Verrouille le parcours validé */
-  lock: () => void;
-  /** Déverrouille (retour en prévisualisation éditable) */
-  unlock: () => void;
+  /** Valide et verrouille le parcours de la zone courante (taskId optionnel) */
+  lock: (taskId?: string) => void;
+  /**
+   * Déverrouille la zone courante (retour en prévisualisation éditable)
+   * et renvoie le taskId de la tâche à retirer du robot (null si absent).
+   */
+  unlock: () => string | null;
+  /** Parcours validés mémorisés par zone (zoneId -> ValidatedCourse) */
+  validated: Record<string, ValidatedCourse>;
   /** Portail (point d'entrée) mémorisé de chaque zone déjà configurée */
   zoneEntryPoints: ZoneEntryPoints;
 }
@@ -91,9 +108,14 @@ export const WorklinesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [params, setParamsState] = useState<WorklinesParams>(DEFAULT_PARAMS);
   const [pickMode, setPickModeState] = useState<PickMode>(null);
   const [result, setResult] = useState<WorklinesResult | null>(null);
-  const [locked, setLocked] = useState(false);
+  // Parcours validés PAR ZONE : verrou, paramètres, résultat et tâche robot
+  const [validated, setValidated] = useState<Record<string, ValidatedCourse>>({});
   // Portail de chaque zone déjà configurée (persiste au changement de zone)
   const [zoneEntryPoints, setZoneEntryPoints] = useState<ZoneEntryPoints>({});
+
+  // La zone courante est verrouillée si elle possède un parcours validé
+  const locked = params.targetZoneId != null
+    && Object.prototype.hasOwnProperty.call(validated, params.targetZoneId);
 
   // Verrouillé : plus aucune sélection sur la carte
   const setPickMode = useCallback((mode: PickMode) => {
@@ -102,7 +124,9 @@ export const WorklinesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [locked]);
 
   const setParams = useCallback((patch: Partial<WorklinesParams>) => {
-    if (locked) return;
+    // Gelé si la zone courante est verrouillée, SAUF le changement de
+    // zone cible : on doit pouvoir quitter une zone verrouillée.
+    if (locked && patch.targetZoneId === undefined) return;
     // Mémorise le portail de la zone cible à chaque placement du point
     // d'entrée : il servira à l'aimantation des chemins de liaison et
     // sera restauré si on revient sur cette zone.
@@ -116,24 +140,29 @@ export const WorklinesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       });
     }
     setParamsState(prev => {
-      const next = { ...prev, ...patch };
-      // Le point d'entrée et la bordure de référence sont liés à la zone
-      // cible. Au changement de zone : bordure reset, point d'entrée
-      // restauré depuis le portail mémorisé s'il existe.
+      // Changement de zone cible : recharge le parcours validé s'il
+      // existe, sinon configuration fraîche (bordure reset, point
+      // d'entrée restauré depuis le portail mémorisé s'il existe).
       if (patch.targetZoneId !== undefined && patch.targetZoneId !== prev.targetZoneId) {
-        next.entryPoint = patch.targetZoneId != null
-          ? (zoneEntryPoints[patch.targetZoneId] ?? null)
-          : null;
-        next.referenceBorderIndex = null;
+        const saved = patch.targetZoneId != null ? validated[patch.targetZoneId] : undefined;
+        if (saved) return { ...saved.params };
+        return {
+          ...DEFAULT_PARAMS,
+          targetZoneId: patch.targetZoneId,
+          entryPoint: patch.targetZoneId != null
+            ? (zoneEntryPoints[patch.targetZoneId] ?? null)
+            : null,
+        };
       }
-      return next;
+      return { ...prev, ...patch };
     });
-    // Changer de zone cible invalide les lignes affichées et le verrou
-    if (patch.targetZoneId !== undefined) {
-      setResult(null);
-      setLocked(false);
+    // Le changement de zone rafraîchit les lignes affichées : parcours
+    // validé de la nouvelle zone, sinon rien.
+    if (patch.targetZoneId !== undefined && patch.targetZoneId !== params.targetZoneId) {
+      const saved = patch.targetZoneId != null ? validated[patch.targetZoneId] : undefined;
+      setResult(saved ? saved.result : null);
     }
-  }, [locked, params, zoneEntryPoints]);
+  }, [locked, params, zoneEntryPoints, validated]);
 
   const generate = useCallback(() => {
     if (locked) return;
@@ -149,15 +178,37 @@ export const WorklinesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setParamsState(DEFAULT_PARAMS);
     setPickModeState(null);
     setResult(null);
-    setLocked(false);
   }, []);
 
-  const lock = useCallback(() => setLocked(true), []);
-  const unlock = useCallback(() => setLocked(false), []);
+  // Valide le parcours de la zone courante : paramètres, résultat et
+  // taskId de la tâche robot sont gelés ensemble, par zone.
+  const lock = useCallback((taskId?: string) => {
+    const zid = params.targetZoneId;
+    if (zid == null || result == null) return;
+    setValidated(m => ({ ...m, [zid]: { params, result, taskId } }));
+  }, [params, result]);
+
+  // Déverrouille la zone courante et renvoie le taskId de sa tâche
+  // (pour la retirer de la file du robot), null si pas de tâche.
+  const unlock = useCallback((): string | null => {
+    const zid = params.targetZoneId;
+    if (zid == null) return null;
+    const tid = validated[zid]?.taskId ?? null;
+    setValidated(m => {
+      if (!Object.prototype.hasOwnProperty.call(m, zid)) return m;
+      const next = { ...m };
+      delete next[zid];
+      return next;
+    });
+    return tid;
+  }, [params, validated]);
 
   return (
     <WorklinesContext.Provider
-      value={{ params, pickMode, setPickMode, setParams, resetParams, result, generate, clearResult, locked, lock, unlock, zoneEntryPoints }}
+      value={{
+        params, pickMode, setPickMode, setParams, resetParams, result,
+        generate, clearResult, locked, lock, unlock, validated, zoneEntryPoints,
+      }}
     >
       {children}
     </WorklinesContext.Provider>

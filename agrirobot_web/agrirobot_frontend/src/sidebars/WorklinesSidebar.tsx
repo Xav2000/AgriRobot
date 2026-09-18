@@ -64,9 +64,16 @@ const WorklinesSidebar: React.FC = () => {
     if (!Number.isNaN(n) && n >= 0) setParams({ obstacleMarginM: n });
   };
 
-  // ---- Étape 6.4 : validation et verrouillage du parcours ----
-  // Id de la tâche créée à la validation (gardé pour le déverrouillage).
-  const [taskId, setTaskId] = React.useState<string | null>(null);
+  // Resynchronise les champs numériques quand les paramètres changent
+  // (changement de zone cible, rechargement d'un parcours validé).
+  React.useEffect(() => { setHeadlandsInput(String(params.headlands)); }, [params.headlands]);
+  React.useEffect(() => { setWidthInput(String(params.workingWidthM)); }, [params.workingWidthM]);
+  React.useEffect(() => {
+    setMarginInput(params.obstacleMarginM == null ? '' : String(params.obstacleMarginM));
+  }, [params.obstacleMarginM]);
+
+  // ---- Étape 6.4 : validation et verrouillage (PAR ZONE) ----
+  // Le taskId de la tâche robot est mémorisé dans le contexte, par zone.
   const [confirmUnlock, setConfirmUnlock] = React.useState(false);
 
   const validateCourse = () => {
@@ -89,26 +96,25 @@ const WorklinesSidebar: React.FC = () => {
         },
       }),
     }));
-    setTaskId(id);
     setConfirmUnlock(false);
-    lock();
+    lock(id);
   };
 
   // Déverrouillage en deux clics (confirmation) : la tâche validée est
   // retirée de la file du robot, les paramètres redeviennent éditables.
   const handleUnlock = () => {
     if (!confirmUnlock) { setConfirmUnlock(true); return; }
-    if (ros && connectionState === 'connected' && taskId) {
+    const tid = unlock();
+    if (ros && connectionState === 'connected' && tid) {
       const cmdPub = new ROSLIB.Topic({
         ros,
         name: '/task/command',
         messageType: 'std_msgs/String',
       });
       cmdPub.publish(new ROSLIB.Message({
-        data: JSON.stringify({ action: 'remove_task', id: taskId }),
+        data: JSON.stringify({ action: 'remove_task', id: tid }),
       }));
     }
-    setTaskId(null);
     setConfirmUnlock(false);
     unlock();
   };
@@ -133,7 +139,6 @@ const WorklinesSidebar: React.FC = () => {
             label="Zone de tonte cible"
             value={params.targetZoneId ?? ''}
             onChange={e => setParams({ targetZoneId: e.target.value || null })}
-            disabled={locked}
           >
             {mowZones.length === 0 && (
               <MenuItem value="" disabled>Aucune zone de tonte</MenuItem>
