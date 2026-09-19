@@ -375,20 +375,6 @@ class NavigationMixin:
                     f'Évacuation : backtrack (aucun chemin sûr avec '
                     f'{n_obs} obstacle(s) gonflé(s) de '
                     f'{OBSTACLE_CLEARANCE_M} m)')
-                geo = task.get('geometry') or {}
-                for ri, ring in enumerate(geo.get('obstacles') or []):
-                    if not ring:
-                        continue
-                    d_min = min(math.hypot(self.robot_pos[0] - p[0],
-                                           self.robot_pos[1] - p[1])
-                                for p in ring)
-                    self.get_logger().warning(
-                        f'  diag: robot={tuple(round(v, 1) for v in self.robot_pos)} '
-                        f'portal={tuple(round(v, 1) for v in portal)} '
-                        f'obst{ri}: {len(ring)} sommets, dist_min={d_min:.2f} m, '
-                        f'robot_in={self._point_in_ring(self.robot_pos, ring)}, '
-                        f'portal_in={self._point_in_ring(portal, ring)}, '
-                        f'sommets={[tuple(round(v, 1) for v in p) for p in ring]}')
             back = list(reversed(self._task_path(task)))
             if back and tuple(back[0]) == tuple(self.robot_pos):
                 back = back[1:]
