@@ -855,12 +855,12 @@ class AgriRobotNode(Node):
                 self.resume_pos = None
                 self.paused = False
                 self.robot_status = 'returning_to_charge'
-                if self.return_route_m:
-                    self.route = list(self.return_route_m)
-                    self.route_idx = 0
-                    self.activity = 'final_return'
-                elif self.station_m:
-                    self.route = self.route_to(self.station_m)
+                # Retour calculé depuis la position ACTUELLE : la
+                # route pré-calculée part de la fin de la dernière
+                # tâche et téléporterait le robot s'il annule avant.
+                if self.station_m:
+                    self.route = self.route_to(self.station_m,
+                                               start=self.robot_pos)
                     self.route_idx = 0
                     self.activity = 'final_return'
                 else:
