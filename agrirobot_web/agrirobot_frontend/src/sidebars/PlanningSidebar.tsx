@@ -51,7 +51,8 @@ const formatLastRun = (iso?: string): string => {
  *   tâche désactivée reste dans la file mais sera sautée par le robot ;
  *   la date de dernière exécution est affichée sous le nom
  * - "Générer le parcours" publie generate_mission avec la file ordonnée
- *   puis ramène au dashboard
+ *   puis ramène au dashboard ; les tâches envoyées restent visibles
+ *   (ré-importées depuis la file pending du robot, source de vérité)
  */
 const PlanningSidebar: React.FC = () => {
   const { ros, connectionState } = useRos();
@@ -63,22 +64,35 @@ const PlanningSidebar: React.FC = () => {
 
   // File locale (brouillon de la mission)
   const [queue, setQueue] = useState<Task[]>([]);
-  // Tâches retirées de la file par l'utilisateur (ou déjà envoyées en
-  // mission) : jamais ré-importées automatiquement.
+  // Tâches retirées LOCALEMENT par l'utilisateur (brouillon) : ne sont
+  // pas ré-importées tant que le robot ne les renvoie pas. Les tâches
+  // envoyées en mission ne sont plus blacklistées : la file du robot
+  // reste visible et éditable après « Générer le parcours ».
   const removedRef = useRef<Set<string>>(new Set());
 
-  // Import des tâches en attente : la file vide repart des pending ; les
-  // NOUVELLES tâches pending (p. ex. un parcours validé en mode lignes
-  // de guidage) sont ajoutées en fin de file — l'ordre existant n'est
-  // jamais modifié.
+  // Synchronisation avec la file en attente du robot (/tasks/list) :
+  // - file vide (première ouverture, ou après génération) -> repart des
+  //   tâches pending du robot : la file ENVOYÉE reste donc visible et
+  //   éditable après « Générer le parcours »
+  // - nouvelles tâches pending (p. ex. parcours validé en mode lignes
+  //   de guidage) ajoutées en fin de file, l'ordre existant est préservé
+  // - une tâche ROBOT qui disparaît des pending (retirée côté robot ou
+  //   terminée) quitte la file ; les tâches locales ne sont pas touchées
   useEffect(() => {
     setQueue(prev => {
       const pending = tasks.filter(
         t => t.status === 'pending' && !removedRef.current.has(t.id));
       if (prev.length === 0) return pending.length > 0 ? pending : prev;
-      const known = new Set(prev.map(t => t.id));
-      const fresh = pending.filter(t => !known.has(t.id));
-      return fresh.length > 0 ? [...prev, ...fresh] : prev;
+      // Préserve l'ordre : les entrées existantes gardent leur place si
+      // elles existent toujours, les nouvelles vont en fin de file.
+      const pendingById = new Map(pending.map(t => [t.id, t]));
+      const kept = prev.filter(t => t.id.startsWith('local-') || pendingById.has(t.id));
+      const keptIds = new Set(kept.map(t => t.id));
+      const fresh = pending.filter(t => !keptIds.has(t.id));
+      // Met à jour les tâches robot (progression, enabled, dates) sans
+      // toucher à l'ordre ni aux tâches locales.
+      const refreshed = kept.map(t => t.id.startsWith('local-') ? t : (pendingById.get(t.id) ?? t));
+      return fresh.length > 0 ? [...refreshed, ...fresh] : refreshed;
     });
   }, [tasks]);
 
@@ -138,9 +152,22 @@ const PlanningSidebar: React.FC = () => {
     }
   };
 
+  // Retire une tâche de la file. Les tâches connues du robot sont AUSSI
+  // retirées de sa file via remove_task (sinon elles réapparaîtraient au
+  // prochain /tasks/list).
   const removeTask = (id: string) => {
     removedRef.current.add(id);
     setQueue(prev => prev.filter(t => t.id !== id));
+    if (ros && connectionState === 'connected' && !id.startsWith('local-')) {
+      const cmdPub = new ROSLIB.Topic({
+        ros,
+        name: '/task/command',
+        messageType: 'std_msgs/String',
+      });
+      cmdPub.publish(new ROSLIB.Message({
+        data: JSON.stringify({ action: 'remove_task', id }),
+      }));
+    }
   };
 
   const generateMission = () => {
@@ -153,9 +180,9 @@ const PlanningSidebar: React.FC = () => {
     cmdPub.publish(new ROSLIB.Message({
       data: JSON.stringify({ action: 'generate_mission', tasks: queue }),
     }));
-    // File vidée : les tâches envoyées ne sont pas ré-importées, la
-    // prochaine session repart des nouvelles tâches pending seulement
-    queue.forEach(t => removedRef.current.add(t.id));
+    // File vidée localement : elle sera ré-importée depuis la file
+    // pending du robot (/tasks/list) — les tâches envoyées restent
+    // visibles et éditables (retrait, désactivation, réordonnancement).
     setQueue([]);
     setMode('dashboard');
   };
