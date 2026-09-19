@@ -546,8 +546,7 @@ const PlanningSidebar: React.FC = () => {
           {notDueCount > 0 && !includeNotDue && (
             <Typography variant="caption" color="text.secondary">
               {notDueCount} tâche{notDueCount > 1 ? 's' : ''} non planifiée{notDueCount > 1 ? 's' : ''}
-              exclue{notDueCount > 1 ? 's' : ''} de la mission (pas encore dans un créneau
-              autorisé).
+              exclue{notDueCount > 1 ? 's' : ''} de la mission (pas encore dans un créneau autorisé).
             </Typography>
           )}
           <Button
@@ -559,4 +558,60 @@ const PlanningSidebar: React.FC = () => {
             disabled={disabled || missionTasks.length === 0 || prereqWarnings.length > 0}
             fullWidth
           >
-        
+            Générer le parcours{missionTasks.length > 0 ? ' (' + missionTasks.length + ' tâche' + (missionTasks.length > 1 ? 's' : '') + ')' : ''}
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<MapIcon />}
+            onClick={() => setMode('zones')}
+            fullWidth
+          >
+            Éditer les zones
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<AltRouteIcon />}
+            onClick={() => setMode('corridors')}
+            fullWidth
+          >
+            Éditer les chemins de liaison{corridors.length > 0 ? ' (' + corridors.length + ')' : ''}
+          </Button>
+
+          <Divider sx={{ my: 1 }} />
+          <Typography variant="subtitle2" gutterBottom>
+            Sauvegarde du projet
+          </Typography>
+          <Stack direction="row" spacing={1}>
+            <Button variant="outlined" startIcon={<FileDownloadIcon />} onClick={exportProject} fullWidth>
+              Exporter
+            </Button>
+            <Button variant="outlined" startIcon={<FileUploadIcon />} onClick={() => fileInputRef.current?.click()} fullWidth>
+              Importer
+            </Button>
+          </Stack>
+          <Typography variant="caption" color="text.secondary">
+            Sauvegarde complète (zones, chemins, station, parcours, file) — automatique dans ce navigateur, fichier pour l'archivage ou un autre poste.
+          </Typography>
+          <input
+            hidden
+            type="file"
+            accept="application/json,.json"
+            ref={fileInputRef}
+            onChange={e => {
+              const f = e.target.files?.[0];
+              if (f) importProject(f);
+              e.target.value = '';
+            }}
+          />
+          {importMsg && (
+            <Alert severity={importMsg.severity} onClose={() => setImportMsg(null)} sx={{ mt: 1 }}>
+              {importMsg.text}
+            </Alert>
+          )}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+};
+
+export default PlanningSidebar;
