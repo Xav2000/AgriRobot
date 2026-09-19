@@ -110,6 +110,7 @@ class AgriRobotNode(Node):
         self.route_idx = 0
         # Reprise automatique après recharge (batterie faible)
         self.resume_pending = False
+        self.resume_task_phase = 'work'
 
         # Réseau de circulation reçu avec la mission (mètres) :
         # sert aux retours d'urgence calculés par le nœud.
@@ -140,6 +141,7 @@ class AgriRobotNode(Node):
             'route': [list(p) for p in self.route],
             'route_idx': self.route_idx,
             'resume_pending': self.resume_pending,
+            'resume_task_phase': self.resume_task_phase,
             'graph_nodes': [list(p) for p in self.graph_nodes],
             'graph_edges': [list(e) for e in self.graph_edges],
             'station_m': list(self.station_m) if self.station_m else None,
@@ -174,6 +176,7 @@ class AgriRobotNode(Node):
             self.route = [tuple(p) for p in state.get('route', [])]
             self.route_idx = state.get('route_idx', 0)
             self.resume_pending = state.get('resume_pending', False)
+            self.resume_task_phase = state.get('resume_task_phase', 'work')
             self.graph_nodes = [tuple(p) for p in state.get('graph_nodes', [])]
             self.graph_edges = [tuple(e) for e in state.get('graph_edges', [])]
             sm = state.get('station_m')
@@ -219,27 +222,30 @@ class AgriRobotNode(Node):
                 best_d, best = d, i
         return best
 
-    def route_to(self, target):
-        """Route (mètres) de la position courante vers target, par le
-        plus court chemin du graphe des corridors. Sans graphe ou sans
-        chemin : ligne directe (fallback simulation)."""
-        if not self.graph_nodes or self.station_m is None:
+    def route_to(self, target, start=None):
+        """Route (mètres) du point start (défaut : position courante)
+        vers target, par le plus court chemin du graphe des corridors.
+        Sans graphe ou sans chemin : ligne directe (fallback)."""
+        if start is None:
+            start = self.robot_pos
+        if not self.graph_nodes or self.station_m is None or target is None:
             return [target]
-        start = self._nearest_node(self.robot_pos)
+        s = self._nearest_node(start)
         goal = self._nearest_node(target)
-        if start < 0 or goal < 0:
+        if s < 0 or goal < 0:
             return [target]
         n = len(self.graph_nodes)
         adj = [[] for _ in range(n)]
         for a, b in self.graph_edges:
-            w = math.hypot(self.graph_nodes[a][0] - self.graph_nodes[b][0],
+            w = math.hyp
+ot(self.graph_nodes[a][0] - self.graph_nodes[b][0],
                            self.graph_nodes[a][1] - self.graph_nodes[b][1])
             adj[a].append((b, w))
             adj[b].append((a, w))
         dist = [float('inf')] * n
         prev = [-1] * n
         done = [False] * n
-        dist[start] = 0.0
+        dist[s] = 0.0
         for _ in range(n):
             u, ud = -1, float('inf')
             for i in range(n):
@@ -261,7 +267,7 @@ class AgriRobotNode(Node):
             nodes.append(self.graph_nodes[v])
             v = prev[v]
         nodes.reverse()
-        return [self.robot_pos] + nodes + [target]
+        return [start] + nodes + [target]
 
     # ------------------------------------------------------------- simulation
 
@@ -285,7 +291,8 @@ class AgriRobotNode(Node):
                     self.finish_charging()
         self.publish_position()
         self.publish_status()
-        if self.tasks:
+        if self.tasks
+:
             self.publish_tasks_list()
             self.publish_mission_path()
         if self._ticks % 20 == 0:
@@ -330,10 +337,20 @@ class AgriRobotNode(Node):
                     timezone.utc).isoformat()
                 self.current_task_idx += 1
                 if self.current_task_idx >= len(self.tasks):
-                    self.start_final_return()
+                    self.start_fin
+al_return()
                 else:
                     self.task_phase = 'transit'
                     self.current_wp_idx = 0
+
+    def _task_path(self, task):
+        """Chemin déjà validé jusqu'à la position courante : transit
+        d'entrée + waypoints effectués (ne traverse jamais un
+        obstacle). En phase transit : portion du transit parcourue."""
+        if self.task_phase == 'work':
+            return (list(task.get('transit') or [])
+                    + list(task['waypoints'][:self.current_wp_idx]))
+        return list(task.get('transit') or [])[:self.current_wp_idx]
 
     def interrupt_for_charge(self):
         """Batterie faible : pause automatique de la mission, retour à
@@ -344,7 +361,20 @@ class AgriRobotNode(Node):
         if task['status'] == 'running':
             task['status'] = 'pending'
         self.resume_pending = True
-        self.route = self.route_to(self.station_m) if self.station_m else []
+        self.resume_task_phase = self.task_phase
+        # Itinéraire d'évacuation SÛR : remonter en sens inverse le
+        # chemin déjà parcouru (transit d'entrée + waypoints faits —
+        # jamais à travers un obstacle), jusqu'à l'entrée de zone ;
+        # de là, Dijkstra sur les corridors jusqu'à la station.
+        back = list(reversed(self._task_path(task)))
+        if back and tuple(back[0]) == tuple(self.robot_pos):
+            back = back[1:]
+        if self.station_m:
+            join = back[-1] if back else self.robot_pos
+            rest = self.route_to(self.station_m, start=join)
+            self.route = (back[:-1] + rest) if back else rest
+        else:
+            self.route = back
         self.route_idx = 0
         self.activity = 'to_station'
         self.robot_status = 'returning_to_charge'
@@ -368,13 +398,16 @@ class AgriRobotNode(Node):
                 self.robot_pos = tuple(self.station_m)
             self.get_logger().info('À la station : recharge en cours')
         elif self.activity == 'resume':
-            # De retour à la zone interrompue : reprise du travail
+            # De retour au point d'interruption : reprise de la phase
+            # interrompue (tonte, ou transit s'il était en cours).
             task = self.tasks[self.current_task_idx]
-            self.task_phase = 'work'
-            self.current_wp_idx = task.get('completed_waypoints', 0)
+            self.task_phase = self.resume_task_phase
+            if self.task_phase == 'work':
+                self.current_wp_idx = task.get('completed_waypoints', 0)
             self.activity = 'work'
             self.robot_status = 'working'
-            self.get_logger().info('Mission reprise après recharge')
+            self.get_logger().info('Mission repr
+ise après recharge')
         elif self.activity == 'final_return':
             self.activity = 'charging'
             self.robot_status = 'charging'
@@ -391,10 +424,18 @@ class AgriRobotNode(Node):
                 and 0 <= self.current_task_idx < len(self.tasks)
                 and has_pending):
             task = self.tasks[self.current_task_idx]
-            entry = (task['waypoints'][0]
-                     if task.get('waypoints') else self.station_m)
+            path = self._task_path(task)
+            entry = (path[0] if path
+                     else (task['waypoints'][0]
+                           if task.get('waypoints') else self.station_m))
             if entry is not None:
-                self.route = self.route_to(entry)
+                # Reprise SÛRE : corridor jusqu'à l'entrée de zone
+                # (Dijkstra), puis rejeu en avant du chemin d'origine
+                # (transit + waypoints déjà faits) jusqu'au point
+                # d'interruption — jamais à travers un obstacle.
+                rest = self.route_to(entry,
+                                     start=self.station_m or self.robot_pos)
+                self.route = (rest[:-1] + path) if path else rest
                 self.route_idx = 0
                 self.activity = 'resume'
                 self.robot_status = 'leaving_charge'
@@ -420,7 +461,8 @@ class AgriRobotNode(Node):
             self.route_idx = 0
             self.activity = 'final_return'
         elif self.station_m:
-            self.route = self.route_to(self.station_m)
+            self.rout
+e = self.route_to(self.station_m)
             self.route_idx = 0
             self.activity = 'final_return'
         else:
@@ -474,7 +516,8 @@ class AgriRobotNode(Node):
             'totalSteps': total,
             'currentStep': done,
             'progress': round(done / total * 100.0, 1) if total else 0.0,
-            'waypoints': ([meters_to_latlng(x, y) for (x, y) in t['waypoints']]
+            'waypoints': ([meters
+_to_latlng(x, y) for (x, y) in t['waypoints']]
                           if t.get('waypoints') else []),
             'lastExecutedAt': t.get('last_executed_at'),
         }
@@ -524,10 +567,12 @@ class AgriRobotNode(Node):
                 self.route = []
                 self.route_idx = 0
                 self.resume_pending = False
+                self.resume_task_phase = 'work'
                 previous = {t['id']: t for t in self.tasks}
                 self.tasks = []
                 for i, t in enumerate(command.get('tasks', [])):
-                    tid = t.get('id', f'task-{i}')
+     
+               tid = t.get('id', f'task-{i}')
                     if t.get('waypoints'):
                         wps = [latlng_to_meters(p) for p in t['waypoints']]
                     elif tid in previous and previous[tid].get('waypoints'):
@@ -562,7 +607,8 @@ class AgriRobotNode(Node):
                                     for e in graph.get('edges', [])]
                 self.station_m = (latlng_to_meters(command['station'])
                                   if command.get('station') else None)
-                self.return_route_m = ([latlng_to_meters(p)
+                self.return_route_m = ([latlng_to_meters
+(p)
                                         for p in command.get('returnRoute', [])]
                                        if command.get('returnRoute') else [])
                 self.publish_tasks_list()
@@ -604,7 +650,8 @@ class AgriRobotNode(Node):
 
             elif action == 'emergency_stop':
                 # Arret IMMEDIAT, securite d'abord : le robot stoppe sur
-                # place et ses outils sont coupes / releves (simule).
+                # pla
+ce et ses outils sont coupes / releves (simule).
                 self.paused = True
                 self.robot_status = 'stopped'
                 self.get_logger().warning(
@@ -630,6 +677,7 @@ class AgriRobotNode(Node):
                 self.task_phase = 'transit'
                 self.current_wp_idx = 0
                 self.resume_pending = False
+                self.resume_task_phase = 'work'
                 self.paused = False
                 self.robot_status = 'returning_to_charge'
                 if self.return_route_m:
@@ -648,7 +696,8 @@ class AgriRobotNode(Node):
 
             elif action == 'add_task':
                 task = command.get('task', {})
-                wps = ([latlng_to_meters(p) for p in task['waypoints']]
+             
+   wps = ([latlng_to_meters(p) for p in task['waypoints']]
                        if task.get('waypoints')
                        else self.generate_waypoints(len(self.tasks)))
                 self.tasks.append({
@@ -691,7 +740,8 @@ class AgriRobotNode(Node):
                 self.get_logger().info('Robot going to charging station')
 
             elif action == 'leave_charge':
-                self.robot_status = 'leaving_charge'
+                self.robo
+t_status = 'leaving_charge'
                 self.get_logger().info('Robot leaving charging station')
 
             elif action == 'return_to_charge':
