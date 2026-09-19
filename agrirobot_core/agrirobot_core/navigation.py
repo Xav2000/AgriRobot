@@ -172,6 +172,23 @@ class NavigationMixin:
         return out
 
     def _route_in_zone(self, task, start, goal):
+        """Plus court chemin SÛR : tente la marge de sécurité
+        pleine (OBSTACLE_CLEARANCE_M), puis des marges réduites
+        si aucun chemin n'existe (passage étroit, départ ou portail
+        à moins d'une marge de l'obstacle)."""
+        for margin in (OBSTACLE_CLEARANCE_M,
+                       round(OBSTACLE_CLEARANCE_M / 2, 2), 0.25, 0.0):
+            path = self._route_in_zone_at(task, start, goal, margin)
+            if path is not None:
+                if margin < OBSTACLE_CLEARANCE_M:
+                    self.get_logger().info(
+                        f'Chemin sûr trouvé avec marge réduite à '
+                        f'{margin} m (départ ou portail proche de '
+                        f"l'obstacle)")
+                return path
+        return None
+
+    def _route_in_zone_at(self, task, start, goal, margin):
         """Plus court chemin SÛR dans la zone (graphe de visibilité) :
         position, but et sommets des obstacles GONFLÉS d'une marge de
         sécurité ; une arête est valide si son segment ne traverse
@@ -183,7 +200,7 @@ class NavigationMixin:
         rings = []
         for ring in geo.get('obstacles') or []:
             if len(ring) >= 3:
-                rings.append(self._inflate_ring(ring, OBSTACLE_CLEARANCE_M))
+                rings.append(self._inflate_ring(ring, margin))
         if not rings:
             return None
         pts = [tuple(start), tuple(goal)]
