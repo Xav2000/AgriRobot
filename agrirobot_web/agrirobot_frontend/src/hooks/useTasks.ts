@@ -24,6 +24,17 @@ export interface Task {
   enabled?: boolean;
   /** Date (ISO 8601) de la dernière exécution terminée, tenue à jour par le robot */
   lastExecutedAt?: string;
+  /**
+   * Etape 6.9 : planification recurrente (voir lib/schedule.ts pour
+   * le calcul d'echeance). Absente = tache due en permanence
+   * (comportement historique).
+   */
+  schedule?: {
+    daysOfWeek: number[];   // 0 = dimanche ... 6 = samedi
+    windowStart: string;    // "HH:MM" ('' = toute la journee)
+    windowEnd: string;      // "HH:MM"
+    intervalDays?: number;  // >= 1 : jours minimum entre deux debuts
+  };
 }
 
 interface TasksState {

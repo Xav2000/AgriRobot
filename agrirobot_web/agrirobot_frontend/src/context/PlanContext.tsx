@@ -26,6 +26,8 @@ interface PlanContextValue {
   mergeRobotState: (robotTasks: Task[]) => void;
   /** Remplace toute la file (import de sauvegarde) */
   replaceQueue: (tasks: Task[]) => void;
+  /** Definit la planification recurrente d'une tache (etape 6.9) */
+  setTaskSchedule: (id: string, schedule: Task['schedule']) => void;
 }
 
 const PlanContext = createContext<PlanContextValue | null>(null);
@@ -103,9 +105,14 @@ export const PlanProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const replaceQueue = useCallback((tasks: Task[]) => setQueue(tasks), []);
 
+  const setTaskSchedule = useCallback(
+    (id: string, schedule: Task['schedule']) => {
+      setQueue(prev => prev.map(t => (t.id === id ? { ...t, schedule } : t)));
+    }, []);
+
   return (
     <PlanContext.Provider
-      value={{ queue, addTask, removeTask, setTaskEnabled, moveTask, mergeRobotState, replaceQueue }}
+      value={{ queue, addTask, removeTask, setTaskEnabled, moveTask, mergeRobotState, replaceQueue, setTaskSchedule }}
     >
       {children}
     </PlanContext.Provider>

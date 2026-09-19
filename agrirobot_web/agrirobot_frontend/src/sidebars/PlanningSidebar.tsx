@@ -4,6 +4,7 @@ import {
   Select, MenuItem, IconButton, Chip, Paper, InputLabel, FormControl,
   Switch, FormControlLabel, Divider,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
+  ToggleButton, ToggleButtonGroup,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
@@ -15,6 +16,7 @@ import MapIcon from '@mui/icons-material/Map';
 import AltRouteIcon from '@mui/icons-material/AltRoute';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
+import EventRepeatIcon from '@mui/icons-material/EventRepeat';
 import ROSLIB from 'roslib';
 import { useTasks, Task } from '../hooks/useTasks';
 import { useRos } from '../hooks/useRos';
@@ -27,6 +29,7 @@ import { useWorklines, ValidatedCourse, ZoneEntryPoints } from '../context/Workl
 import { usePlan } from '../context/PlanContext';
 import { buildProjectDocument, parseProjectDocument } from '../lib/storage';
 import { buildMissionPayload } from '../lib/mission';
+import { isTaskDue, scheduleBadge } from '../lib/schedule';
 
 const TYPE_LABELS: Record<Task['type'], string> = {
   mowing: 'Tonte',
@@ -75,7 +78,7 @@ const PlanningSidebar: React.FC = () => {
   const { validated, zoneEntryPoints, importState } = useWorklines();
   const {
     queue, addTask: addTaskToPlan, removeTask, setTaskEnabled,
-    moveTask, mergeRobotState, replaceQueue,
+    moveTask, mergeRobotState, replaceQueue, setTaskSchedule,
   } = usePlan();
 
   const disabled = connectionState !== 'connected';
@@ -102,6 +105,14 @@ const PlanningSidebar: React.FC = () => {
   // Erreur de construction de la mission (zone non reliée…)
   const [genError, setGenError] = useState<string | null>(null);
 
+  // Etape 6.9 : edition de la planification d'une tache
+  const [scheduleTaskId, setScheduleTaskId] = useState<string | null>(null);
+  const [schedDays, setSchedDays] = useState<number[]>([]);
+  const [schedStart, setSchedStart] = useState('');
+  const [schedEnd, setSchedEnd] = useState('');
+  const [schedInterval, setSchedInterval] = useState('');
+  const [includeNotDue, setIncludeNotDue] = useState(false);
+
   const handleDragStart = (index: number) => setDragIndex(index);
 
   const handleDragEnter = (index: number) => {
@@ -126,6 +137,35 @@ const PlanningSidebar: React.FC = () => {
   // Etape 6.9 : bascule d'activation — décision LOCALE (la mission
   // n'embarque que les tâches actives ; plus de set_task_enabled).
   const toggleEnabled = (id: string, enabled: boolean) => setTaskEnabled(id, enabled);
+
+  // Ouvre le dialogue de planification pre-rempli depuis la tache.
+  const openSchedule = (task: Task) => {
+    setScheduleTaskId(task.id);
+    setSchedDays(task.schedule?.daysOfWeek ?? [1, 2, 3, 4, 5]);
+    setSchedStart(task.schedule?.windowStart ?? '');
+    setSchedEnd(task.schedule?.windowEnd ?? '');
+    setSchedInterval(task.schedule?.intervalDays
+      ? String(task.schedule.intervalDays) : '');
+  };
+
+  const saveSchedule = () => {
+    if (!scheduleTaskId) return;
+    const interval = parseInt(schedInterval, 10);
+    setTaskSchedule(scheduleTaskId, {
+      daysOfWeek: [...schedDays].sort((a, b) => a - b),
+      windowStart: schedStart,
+      windowEnd: schedEnd,
+      intervalDays: Number.isFinite(interval) && interval > 0
+        ? interval : undefined,
+    });
+    setScheduleTaskId(null);
+  };
+
+  const clearSchedule = () => {
+    if (!scheduleTaskId) return;
+    setTaskSchedule(scheduleTaskId, undefined);
+    setScheduleTaskId(null);
+  };
 
   // Retire une tâche de la file locale (plus de remove_task robot).
   const handleRemoveTask = (id: string) => removeTask(id);
@@ -181,8 +221,13 @@ const PlanningSidebar: React.FC = () => {
 
   // Mission = tâches ACTIVES de la file, dans l'ordre choisi (les
   // désactivées restent dans la file pour une prochaine mission).
-  const missionTasks = queue.filter(t => t.enabled !== false);
-  const disabledCount = queue.length - missionTasks.length;
+  const activeTasks = queue.filter(t => t.enabled !== false);
+  // Mission = taches actives ET dues (etape 6.9) sauf inclusion
+  // forcee des non-dues par l'operateur.
+  const missionTasks = activeTasks.filter(
+    t => includeNotDue || isTaskDue(t));
+  const notDueCount = activeTasks.length - missionTasks.length;
+  const disabledCount = queue.length - activeTasks.length;
 
   // Prérequis de mission : le robot doit pouvoir REJOINDRE les zones
   // depuis la station via les chemins de liaison. Sans station ni
@@ -363,7 +408,21 @@ const PlanningSidebar: React.FC = () => {
                       {formatLastRun(task.lastExecutedAt)}
                     </Typography>
                   </Stack>
+                  {task.schedule && (
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                      <EventRepeatIcon sx={{ fontSize: 13 }} color="action" />
+                      <Typography variant="caption"
+                        color={scheduleBadge(task) === 'due' ? 'success.main' : 'text.secondary'}>
+                        {scheduleBadge(task)}
+                      </Typography>
+                    </Stack>
+                  )}
                 </Box>
+                <IconButton size="small" aria-label="planification"
+                  onClick={() => openSchedule(task)}>
+                  <EventRepeatIcon fontSize="small"
+                    color={task.schedule ? 'primary' : 'action'} />
+                </IconButton>
                 <FormControlLabel
                   control={
                     <Switch
@@ -383,6 +442,58 @@ const PlanningSidebar: React.FC = () => {
             ))}
           </Box>
         )}
+
+        {/* Etape 6.9 : planification recurrente d'une tache */}
+        <Dialog open={scheduleTaskId !== null} onClose={() => setScheduleTaskId(null)}>
+          <DialogTitle>Planification</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ mt: 1, minWidth: 340 }}>
+              <Typography variant="body2" color="text.secondary">
+                Jours autorisés
+              </Typography>
+              <ToggleButtonGroup
+                size="small"
+                value={schedDays}
+                onChange={(_, v) => setSchedDays(v)}
+              >
+                {[1, 2, 3, 4, 5, 6, 0].map(d => (
+                  <ToggleButton key={d} value={d}>
+                    {['D', 'L', 'M', 'M', 'J', 'V', 'S'][d]}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+              <Stack direction="row" spacing={2}>
+                <TextField
+                  size="small" type="time" label="Début"
+                  value={schedStart}
+                  onChange={e => setSchedStart(e.target.value)}
+                  slotProps={{ inputLabel: { shrink: true } }}
+                />
+                <TextField
+                  size="small" type="time" label="Fin"
+                  value={schedEnd}
+                  onChange={e => setSchedEnd(e.target.value)}
+                  slotProps={{ inputLabel: { shrink: true } }}
+                />
+              </Stack>
+              <TextField
+                size="small" type="number" label="Intervalle minimal (jours)"
+                value={schedInterval}
+                onChange={e => setSchedInterval(e.target.value)}
+                helperText="Vide = aucun minimum entre deux débuts"
+              />
+              <Typography variant="caption" color="text.secondary">
+                Une tâche interrompue reprend en priorité au prochain créneau,
+                à sa progression enregistrée.
+              </Typography>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={clearSchedule} color="warning">Supprimer</Button>
+            <Button onClick={() => setScheduleTaskId(null)}>Annuler</Button>
+            <Button variant="contained" onClick={saveSchedule}>Enregistrer</Button>
+          </DialogActions>
+        </Dialog>
 
         {/* Régénération par-dessus une mission partiellement exécutée :
             l'opérateur choisit de conserver la progression des tâches
@@ -423,6 +534,20 @@ const PlanningSidebar: React.FC = () => {
               invalide{invalidCorridorCount > 1 ? 's' : ''} — le robot ne pourra pas
               l'{invalidCorridorCount > 1 ? 'es' : 'e'} emprunter en l'état.
             </Alert>
+          )}
+          <FormControlLabel
+            control={
+              <Switch size="small" checked={includeNotDue}
+                onChange={e => setIncludeNotDue(e.target.checked)} />
+            }
+            label="Inclure les tâches non dues"
+            sx={{ '& .MuiFormControlLabel-label': { fontSize: 12 } }}
+          />
+          {notDueCount > 0 && !includeNotDue && (
+            <Typography variant="caption" color="text.secondary">
+              {notDueCount} tâche{notDueCount > 1 ? 's' : ''} non due{notDueCount > 1 ? 's' : ''}
+              exclue{notDueCount > 1 ? 's' : ''} de la mission (échéance non atteinte).
+            </Typography>
           )}
           <Button
             variant="contained"
