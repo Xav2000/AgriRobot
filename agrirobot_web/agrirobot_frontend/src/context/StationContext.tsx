@@ -1,4 +1,5 @@
-import React, { createContext, useCallback, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { loadSlice, saveSlice } from '../lib/storage';
 
 /**
  * Station de recharge (étape 6.8) : simple POINT avec une orientation
@@ -10,6 +11,8 @@ import React, { createContext, useCallback, useContext, useState } from 'react';
  * à moins de 1 m d'un segment (nœud du graphe, comme une jonction en
  * T) : c'est le point de départ des plus courts chemins (retours
  * d'urgence, étape 6.10).
+ *
+ * Persistance (refonte R1) : localStorage automatique.
  */
 export interface Station {
   position: [number, number];
@@ -31,13 +34,18 @@ interface StationContextValue {
   /** True pendant le placement au clic sur la carte */
   placing: boolean;
   setPlacing: (v: boolean) => void;
+  /** Import d'une sauvegarde (refonte R1) */
+  importStation: (s: Station | null) => void;
 }
 
 const StationContext = createContext<StationContextValue | null>(null);
 
 export const StationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [station, setStationState] = useState<Station | null>(null);
+  const [station, setStationState] = useState<Station | null>(() => loadSlice<Station | null>('station', null));
   const [placing, setPlacing] = useState(false);
+
+  // Sauvegarde automatique (refonte R1)
+  useEffect(() => { saveSlice('station', station); }, [station]);
 
   const setStation = useCallback((position: [number, number]) => {
     setStationState(prev => (prev ? { ...prev, position } : { position, headingDeg: 0 }));
@@ -60,9 +68,14 @@ export const StationProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const clearStation = useCallback(() => setStationState(null), []);
 
+  const importStation = useCallback((s: Station | null) => {
+    setStationState(s);
+    setPlacing(false);
+  }, []);
+
   return (
     <StationContext.Provider
-      value={{ station, setStation, moveStation, rotateStation, setHeading, clearStation, placing, setPlacing }}
+      value={{ station, setStation, moveStation, rotateStation, setHeading, clearStation, placing, setPlacing, importStation }}
     >
       {children}
     </StationContext.Provider>

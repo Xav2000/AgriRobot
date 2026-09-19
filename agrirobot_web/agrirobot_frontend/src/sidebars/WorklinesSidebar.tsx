@@ -9,11 +9,10 @@ import BorderStyleIcon from '@mui/icons-material/BorderStyle';
 import LockIcon from '@mui/icons-material/Lock';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 import RouteIcon from '@mui/icons-material/Route';
-import ROSLIB from 'roslib';
 import { useUiMode } from '../context/UiModeContext';
 import { useZones } from '../context/ZonesContext';
 import { useWorklines } from '../context/WorklinesContext';
-import { useRos } from '../hooks/useRos';
+import { usePlan } from '../context/PlanContext';
 import { toWaypoints } from '../lib/worklines';
 
 /**
@@ -22,14 +21,16 @@ import { toWaypoints } from '../lib/worklines';
  * obstacles) puis génération et prévisualisation sur la carte.
  * Étape 6.4 : « Valider le parcours » verrouille les lignes (paramètres
  * gelés) et ajoute une tâche avec les WAYPOINTS RÉELS à la file de
- * planification — la mission générée suit exactement ce parcours.
+ * planification du FRONTEND (persistée) — la mission générée suivra
+ * exactement ce parcours. Plus d'envoi add_task au robot : la mission
+ * complète est publiée par le planificateur (refonte R3).
  * Sur la carte : blanc = passages et contours, orange pointillé =
  * transitions (contrôle visuel du trajet du robot).
  */
 const WorklinesSidebar: React.FC = () => {
   const { goBack, setMode } = useUiMode();
   const { zones } = useZones();
-  const { ros, connectionState } = useRos();
+  const plan = usePlan();
   const {
     params, pickMode, setPickMode, setParams, result, generate, clearResult,
     locked, lock, unlock,
@@ -73,50 +74,33 @@ const WorklinesSidebar: React.FC = () => {
   }, [params.obstacleMarginM]);
 
   // ---- Étape 6.4 : validation et verrouillage (PAR ZONE) ----
-  // Le taskId de la tâche robot est mémorisé dans le contexte, par zone.
+  // Le taskId de la tâche de planification est mémorisé dans le
+  // contexte, par zone.
   const [confirmUnlock, setConfirmUnlock] = React.useState(false);
 
   const validateCourse = () => {
-    if (!ros || connectionState !== 'connected' || !result || !targetZone) return;
-    const id = 'wl-' + Date.now();
-    const cmdPub = new ROSLIB.Topic({
-      ros,
-      name: '/task/command',
-      messageType: 'std_msgs/String',
+    if (!result || !targetZone) return;
+    // Refonte R3 : la tâche vit dans la file de planification du
+    // FRONTEND (persistée). Le robot ne recevra que la mission finale
+    // (generate_mission), avec ces waypoints.
+    const id = plan.addTask({
+      name: 'Tonte — ' + targetZone.name,
+      type: 'mowing',
+      field: targetZone.name,
+      waypoints: toWaypoints(result),
     });
-    cmdPub.publish(new ROSLIB.Message({
-      data: JSON.stringify({
-        action: 'add_task',
-        task: {
-          id,
-          name: 'Tonte — ' + targetZone.name,
-          type: 'mowing',
-          field: targetZone.name,
-          waypoints: toWaypoints(result),
-        },
-      }),
-    }));
     setConfirmUnlock(false);
     lock(id);
   };
 
-  // Déverrouillage en deux clics (confirmation) : la tâche validée est
-  // retirée de la file du robot, les paramètres redeviennent éditables.
+  // Déverrouillage en deux clics (confirmation) : la tâche validée
+  // quitte la file de planification, les paramètres redeviennent
+  // éditables.
   const handleUnlock = () => {
     if (!confirmUnlock) { setConfirmUnlock(true); return; }
     const tid = unlock();
-    if (ros && connectionState === 'connected' && tid) {
-      const cmdPub = new ROSLIB.Topic({
-        ros,
-        name: '/task/command',
-        messageType: 'std_msgs/String',
-      });
-      cmdPub.publish(new ROSLIB.Message({
-        data: JSON.stringify({ action: 'remove_task', id: tid }),
-      }));
-    }
+    if (tid) plan.removeTask(tid);
     setConfirmUnlock(false);
-    unlock();
   };
 
   return (
@@ -304,16 +288,10 @@ const WorklinesSidebar: React.FC = () => {
                   fullWidth
                   startIcon={<LockIcon />}
                   sx={{ mt: 1 }}
-                  disabled={connectionState !== 'connected'}
                   onClick={validateCourse}
                 >
                   Valider le parcours
                 </Button>
-                {connectionState !== 'connected' && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                    ROS 2 non connecté — la validation ajoute la tâche au robot.
-                  </Typography>
-                )}
                 <Button size="small" onClick={clearResult} sx={{ mt: 0.5 }}>
                   Effacer les lignes
                 </Button>

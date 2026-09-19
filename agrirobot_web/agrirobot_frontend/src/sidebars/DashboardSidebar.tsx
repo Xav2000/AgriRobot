@@ -36,6 +36,28 @@ const DashboardSidebar: React.FC = () => {
   // Le choix pause / annulation est ensuite fait dans la fenêtre.
   const [stopDialogOpen, setStopDialogOpen] = useState(false);
 
+  // Toutes les zones sont terminées à 100 % : avant de relancer, on
+  // propose de réinitialiser la mission (purge complète de la
+  // progression) plutôt que de refaire les transits pour rien.
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const allCompleted =
+    tasks.length > 0 && tasks.every(t => t.status === 'completed');
+
+  const handleStart = () => {
+    if (allCompleted) {
+      setResetDialogOpen(true);
+      return;
+    }
+    handleTaskCommand('start_all_tasks');
+  };
+
+  const handleResetAndStart = () => {
+    setResetDialogOpen(false);
+    handleTaskCommand('reset_mission');
+    // léger délai : laisser le node traiter le reset avant le départ
+    setTimeout(() => handleTaskCommand('start_all_tasks'), 500);
+  };
+
   const handleEmergencyStop = () => {
     handleTaskCommand('emergency_stop');
     setStopDialogOpen(true);
@@ -45,18 +67,32 @@ const DashboardSidebar: React.FC = () => {
   // - Pas de tâche en cours ET ROS connecté
   const robotInactive = !hasRunningTask && !disabled;
 
-  const handleTaskCommand = (
-    action: 'start_all_tasks' | 'stop_all_tasks' | 'emergency_stop'
-      | 'pause_mission' | 'cancel_mission'
-  ) => {
+  // Commande générique vers /task/command (actions simples ou
+  // commandes de test avec paramètres — batterie, vitesse).
+  const sendCommand = (payload: Record<string, unknown>) => {
     if (!ros || disabled) return;
     const cmdPub = new ROSLIB.Topic({
       ros,
       name: '/task/command',
       messageType: 'std_msgs/String',
     });
-    cmdPub.publish(new ROSLIB.Message({ data: JSON.stringify({ action }) }));
+    cmdPub.publish(new ROSLIB.Message({ data: JSON.stringify(payload) }));
   };
+
+  const handleTaskCommand = (
+    action: 'start_all_tasks' | 'stop_all_tasks' | 'emergency_stop'
+      | 'pause_mission' | 'cancel_mission' | 'reset_mission'
+  ) => {
+    sendCommand({ action });
+  };
+
+  // Panneau de développement : forcer la batterie et la vitesse de
+  // simulation pour tester toutes les situations (coupure batterie
+  // où l'on veut, accélérer / ralentir la simu).
+  const handleSetBattery = (level: number) =>
+    sendCommand({ action: 'set_battery', level });
+  const handleSetSpeed = (multiplier: number) =>
+    sendCommand({ action: 'set_speed', multiplier });
 
   return (
     <>
@@ -86,7 +122,7 @@ const DashboardSidebar: React.FC = () => {
                 variant="contained"
                 color="success"
                 startIcon={<PlayArrowIcon />}
-                onClick={() => handleTaskCommand('start_all_tasks')}
+                onClick={handleStart}
                 disabled={disabled}
                 fullWidth
               >
@@ -167,6 +203,62 @@ const DashboardSidebar: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Toutes les zones terminées : confirmation de réinitialisation
+          avant de relancer une mission complète. */}
+      <Dialog open={resetDialogOpen} onClose={() => setResetDialogOpen(false)}>
+        <DialogTitle>Toutes les zones sont terminées</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Les zones de tonte ont déjà été effectuées à 100 %.
+            Veux-tu réinitialiser la progression et lancer une nouvelle mission ?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setResetDialogOpen(false)}>
+            Annuler
+          </Button>
+          <Button variant="contained" color="success" onClick={handleResetAndStart}>
+            Réinitialiser et démarrer
+          </Button>
+        </DialogActions>
+      </Dialog>
+      {/* Panneau de développement : tests batterie / vitesse */}
+      <Card>
+        <CardContent>
+          <Typography variant="subtitle2" gutterBottom>
+            Développement (tests)
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+            Batterie
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+            <Button size="small" variant="outlined" color="warning" onClick={() => handleSetBattery(15)}>
+              ⚡ 15 %
+            </Button>
+            <Button size="small" variant="outlined" color="success" onClick={() => handleSetBattery(100)}>
+              🔋 100 %
+            </Button>
+          </Stack>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+            Vitesse de simulation
+          </Typography>
+          <Stack direction="row" spacing={1}>
+            <Button size="small" variant="outlined" onClick={() => handleSetSpeed(0.5)}>
+              🐢 x0,5
+            </Button>
+            <Button size="small" variant="outlined" onClick={() => handleSetSpeed(1)}>
+              ▶ x1
+            </Button>
+            <Button size="small" variant="outlined" onClick={() => handleSetSpeed(2)}>
+              ⏩ x2
+            </Button>
+            <Button size="small" variant="outlined" onClick={() => handleSetSpeed(4)}>
+              ⏭ x4
+            </Button>
+          </Stack>
+        </CardContent>
+      </Card>
     </>
   );
 };

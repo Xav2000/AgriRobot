@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Polygon, Polyline, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { useZones, CORRIDOR_COLOR, Zone } from '../context/ZonesContext';
@@ -10,8 +10,11 @@ import { useUiMode } from '../context/UiModeContext';
  *  liaison se colle au portail (point d'entrée) de la zone proche. */
 const SNAP_PX = 20;
 
-/** Modes dans lesquels les chemins de liaison sont dessinables/éditables. */
-export const CORRIDOR_MODES = ['zones', 'planning', 'corridors'];
+/** Modes dans lesquels les chemins de liaison sont dessinables/éditables.
+ *  La PLANIFICATION n'en fait PAS partie : c'est l'organisation des
+ *  tâches et la génération du parcours, pas l'édition — les chemins y
+ *  sont visibles mais non cliquables/éditables (choix utilisateur). */
+export const CORRIDOR_MODES = ['zones', 'corridors'];
 
 /** Aimante le point sur le portail d'une zone s'il est assez proche. */
 const snapToPortail = (
@@ -31,6 +34,36 @@ const snapToPortail = (
     if (px < bestPx) { bestPx = px; best = ep; }
   }
   return best ?? pt;
+};
+
+/**
+ * Tooltip de couche, masqué pendant l'édition SANS être démonté.
+ *
+ * Correctif du crash « Cannot set properties of null (setting
+ * '_source') » (Leaflet #9071 / react-leaflet #1036) : démonter le
+ * Tooltip d'une couche qui reste affichée (unbindTooltip) laisse des
+ * écouteurs orphelins sur l'élément SVG — le clic suivant sur la
+ * couche crashe. Reproduction ici : cliquer un chemin de liaison pour
+ * le sélectionner bascule editMode, ce qui démontait son tooltip. Le
+ * Tooltip reste donc monté toute la vie de la couche ; on masque par
+ * opacité pendant l'édition.
+ */
+const LayerTooltip: React.FC<{
+  hide: boolean;
+  sticky?: boolean;
+  children: React.ReactNode;
+}> = ({ hide, sticky = true, children }) => {
+  const tooltipRef = useRef<L.Tooltip>(null);
+
+  useEffect(() => {
+    tooltipRef.current?.setOpacity(hide ? 0 : 0.9);
+  }, [hide]);
+
+  return (
+    <Tooltip ref={tooltipRef} sticky={sticky}>
+      {children}
+    </Tooltip>
+  );
 };
 
 /** Pastille de sommet (glissable). */
@@ -72,9 +105,9 @@ const portailIcon = L.divIcon({
  * Clic sur la carte (seulement si le mode AJOUT est actif dans la
  * toolbar — désactivé à l'édition d'un objet existant, pour ne pas
  * créer des sommets parasites à côté de ceux qu'on déplace) :
- * - chemin de liaison sélectionné (modes zones, planification et
- *   chemins, édition active) : prolonge le tracé, avec aimantation sur
- *   le portail d'une zone si le clic est proche ;
+ * - chemin de liaison sélectionné (modes zones et chemins, édition
+ *   active) : prolonge le tracé, avec aimantation sur le portail d'une
+ *   zone si le clic est proche ;
  * - zone sélectionnée (mode zones, édition active) : ajoute un sommet.
  * Pendant l'édition, les clics sur les polygones existants traversent
  * (aucune sélection détournée) — on peut ainsi dessiner une exclusion à
@@ -153,11 +186,14 @@ const CorridorRubberBand: React.FC = () => {
  * - poignées de sommets sur la zone sélectionnée, uniquement en mode
  *   zones avec édition active : glisser pour déplacer, clic droit pour
  *   supprimer
- * - chemins de liaison : sélection/édition en modes zones, planification
- *   et chemins, élastique de tracé, pastilles médianes cliquables pour
- *   insérer un sommet, aimantation des points sur les portails
+ * - chemins de liaison : sélection/édition en modes zones et chemins
+ *   (PAS en planification — rien n'y est éditable), élastique de tracé,
+ *   pastilles médianes cliquables pour insérer un sommet, aimantation
+ *   des points sur les portails
  * - tooltips MASQUÉS pendant l'édition : sinon le label sticky suit le
- *   curseur et masque le portail (point d'entrée) qu'on veut cliquer
+ *   curseur et masque le portail (point d'entrée) qu'on veut cliquer —
+ *   masqués par OPACITÉ, jamais démontés (crash Leaflet, voir
+ *   LayerTooltip)
  * - portails (points d'entrée mémorisés) des zones de tonte affichés
  *   dans les modes où les chemins se dessinent ; un clic dessus pendant
  *   l'édition d'un chemin pose un point exactement sur le portail
@@ -176,6 +212,13 @@ export const ZonesLayer: React.FC = () => {
 
   const corridorModes = CORRIDOR_MODES.includes(mode);
   const editing = corridorModes && editMode && (selectedZoneId !== null || selectedCorridorId !== null);
+
+  // Quitter un mode éditable coupe l'édition : pas d'état d'édition
+  // fantôme qui survit au changement de menu (la sélection est
+  // conservée, seule la session d'édition se ferme).
+  useEffect(() => {
+    if (!corridorModes && editMode) setEditMode(false);
+  }, [corridorModes, editMode, setEditMode]);
 
   // Curseur croix pendant l'édition
   useEffect(() => {
@@ -221,15 +264,13 @@ export const ZonesLayer: React.FC = () => {
                     : undefined
                 }
               >
-                {/* Tooltip masqué pendant l'édition : sinon il suit le
-                    curseur et masque le portail (point d'entrée) qu'on
-                    essaie de cliquer pour l'aimantation. */}
-                {!editMode && (
-                  <Tooltip sticky>
-                    {zone.name}
-                    {isExclusion ? ' — exclusion' : ''}
-                  </Tooltip>
-                )}
+                {/* Tooltip masqué (invisible) pendant l'édition : sinon il
+                    suit le curseur et masque le portail (point d'entrée)
+                    qu'on essaie de cliquer pour l'aimantation. */}
+                <LayerTooltip hide={editMode}>
+                  {zone.name}
+                  {isExclusion ? ' — exclusion' : ''}
+                </LayerTooltip>
               </Polygon>
             )}
 
@@ -303,15 +344,15 @@ export const ZonesLayer: React.FC = () => {
               },
             }}
           >
-            {!editMode && <Tooltip>Portail — {zone.name}</Tooltip>}
+            <LayerTooltip hide={editMode} sticky={false}>Portail — {zone.name}</LayerTooltip>
           </Marker>
         );
       })}
 
       {/* Chemins de liaison (étape 6.6) : polyline bleue, cliquable hors
-          édition (sélection + édition) en modes zones, planification et
-          chemins, poignées et pastilles médianes en édition, élastique de
-          tracé, aimantation des points sur les portails des zones.
+          édition (sélection + édition) en modes zones et chemins,
+          poignées et pastilles médianes en édition, élastique de tracé,
+          aimantation des points sur les portails des zones.
           Invalide (n'entre dans aucune zone / traverse une exclusion) :
           tracé pointillé + warning dans le tooltip. */}
       {corridors.map(corridor => {
@@ -341,14 +382,13 @@ export const ZonesLayer: React.FC = () => {
                     : undefined
                 }
               >
-                {/* Tooltip masqué pendant l'édition (même raison que
-                    les polygones : ne pas masquer les portails). */}
-                {!editMode && (
-                  <Tooltip sticky>
-                    {corridor.name}
-                    {invalid ? ' — invalide : ' + warnings.join(', ') : ' — chemin de liaison'}
-                  </Tooltip>
-                )}
+                {/* Tooltip masqué (invisible) pendant l'édition (même
+                    raison que les polygones : ne pas masquer les
+                    portails). */}
+                <LayerTooltip hide={editMode}>
+                  {corridor.name}
+                  {invalid ? ' — invalide : ' + warnings.join(', ') : ' — chemin de liaison'}
+                </LayerTooltip>
               </Polyline>
             )}
 
