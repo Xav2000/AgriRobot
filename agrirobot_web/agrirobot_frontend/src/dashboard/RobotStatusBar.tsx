@@ -47,8 +47,7 @@ export const RobotStatusBar: React.FC = () => {
   };
 
   const statusInfo = robotStatus
-    ? STATUS_INFO[robotStatus.status] ?? { color: 'default'
- as const, label: 'Inactif' }
+    ? STATUS_INFO[robotStatus.status] ?? { color: 'default' as const, label: 'Inactif' }
     : { color: 'default' as const, label: 'Inconnu' };
 
   const battery = robotStatus?.battery ?? 0;

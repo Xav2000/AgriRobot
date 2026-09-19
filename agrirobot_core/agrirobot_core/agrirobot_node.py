@@ -52,8 +52,7 @@ class AgriRobotNode(NavigationMixin, Node):
     def save_state(self):
         """Écrit l'état complet dans state.json (atomique)."""
         state = {
-            'sav
-edAt': datetime.now(timezone.utc).isoformat(),
+            'savedAt': datetime.now(timezone.utc).isoformat(),
             'robot_status': self.robot_status,
             'battery': self.battery,
             'robot_pos': list(self.robot_pos),
@@ -95,8 +94,7 @@ edAt': datetime.now(timezone.utc).isoformat(),
             self.battery = state.get('battery', 100.0)
             pos = state.get('robot_pos', [0.0, 0.0])
             self.robot_pos = (pos[0], pos[1])
-            self.
-current_task_idx = state.get('current_task_idx', 0)
+            self.current_task_idx = state.get('current_task_idx', 0)
             self.task_phase = state.get('task_phase', 'transit')
             self.current_wp_idx = state.get('current_wp_idx', 0)
             self.route = [tuple(p) for p in state.get('route', [])]
@@ -129,8 +127,7 @@ current_task_idx = state.get('current_task_idx', 0)
                     in_range = 0 <= self.current_task_idx < len(self.tasks)
                     if not (self.resume_pending and has_pending and in_range):
                         # Charge orpheline (mission terminée ou état
-                        # corrompu par un crash) : retour au repo
-s.
+                        # corrompu par un crash) : retour au repos.
                         self.activity = None
                         self.robot_status = 'idle'
             self.get_logger().info(
@@ -177,8 +174,7 @@ s.
         if self.task_phase == 'transit':
             wps = task.get('transit') or []
             if not wps:
-                # Pas de transit calculé (tâche manuell
-e) : direct au travail
+                # Pas de transit calculé (tâche manuelle) : direct au travail
                 self.task_phase = 'work'
                 self.current_wp_idx = task.get('completed_waypoints', 0)
                 return
@@ -224,8 +220,7 @@ e) : direct au travail
             self.route_idx += 1
             self.battery = max(5.0, self.battery - TRANSIT_DRAIN)
             return
-     
-   # Arrivée
+        # Arrivée
         if self.activity == 'to_station':
             self.activity = 'charging'
             self.robot_status = 'charging'
@@ -266,8 +261,7 @@ e) : direct au travail
             if portal is not None and self.resume_pos:
                 zpath = self._route_in_zone(task, portal, self.resume_pos)
             else:
-                zpat
-h = None
+                zpath = None
             if zpath is None:
                 zpath = self._task_path(task)
             entry = (zpath[0] if zpath
@@ -316,8 +310,7 @@ h = None
         ox, oy = index * 40.0, index * 25.0
         wps = []
         for lane in range(3):
-      
-      y = oy + lane * 10.0
+            y = oy + lane * 10.0
             if lane % 2 == 0:
                 wps += [(ox, y), (ox + 30.0, y)]
             else:
@@ -375,8 +368,7 @@ h = None
         msg.data = json.dumps({
             'tasks': [
                 {
-               
-     'id': t['id'],
+                    'id': t['id'],
                     'name': t['name'],
                     'status': t['status'],
                     'waypoints': [meters_to_latlng(x, y) for (x, y) in t['waypoints']],
@@ -423,8 +415,7 @@ h = None
                         wps = previous[tid]['waypoints']
                     else:
                         wps = self.generate_waypoints(i)
-                    tra
-nsit = ([latlng_to_meters(p) for p in t['transit']]
+                    transit = ([latlng_to_meters(p) for p in t['transit']]
                                if t.get('transit') else [])
                     geo = t.get('geometry') or {}
                     geometry = ({
@@ -460,8 +451,7 @@ nsit = ([latlng_to_meters(p) for p in t['transit']]
                 graph = command.get('graph') or {}
                 self.graph_nodes = [latlng_to_meters(p)
                                     for p in graph.get('nodes', [])]
-              
-  self.graph_edges = [tuple(e)
+                self.graph_edges = [tuple(e)
                                     for e in graph.get('edges', [])]
                 self.station_m = (latlng_to_meters(command['station'])
                                   if command.get('station') else None)
@@ -500,8 +490,7 @@ nsit = ([latlng_to_meters(p) for p in t['transit']]
             elif action == 'stop_all_tasks':
                 self.paused = True
                 self.robot_status = 'idle'
-                for t in self.task
-s:
+                for t in self.tasks:
                     if t['status'] == 'running':
                         t['status'] = 'pending'
                 self.get_logger().info('Mission arrêtée')
@@ -544,8 +533,7 @@ s:
                 # tâche et téléporterait le robot s'il annule avant.
                 if self.station_m:
                     self.route = self.route_to(self.station_m,
-                      
-                         start=self.robot_pos)
+                                               start=self.robot_pos)
                     self.route_idx = 0
                     self.activity = 'final_return'
                 else:
@@ -587,8 +575,7 @@ s:
                     self.get_logger().warning(f'No pending task to remove: {tid}')
 
             elif action == 'start_task':
-                self.ro
-bot_status = 'working'
+                self.robot_status = 'working'
                 self.get_logger().info('Started task')
 
             elif action == 'stop_task':
@@ -632,8 +619,7 @@ bot_status = 'working'
                 # Outil de test : multiplicateur de vitesse de
                 # simulation (recrée le timer de tick).
                 mult = max(0.25, min(4.0,
-                      
-               float(command.get('multiplier', 1.0))))
+                                     float(command.get('multiplier', 1.0))))
                 self.speed_multiplier = mult
                 self.timer.cancel()
                 self.timer = self.create_timer(0.5 / mult, self.tick)
