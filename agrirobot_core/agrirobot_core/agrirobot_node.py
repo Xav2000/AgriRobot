@@ -63,6 +63,10 @@ SAFETY_MARGIN = 1.5
 MIN_RESERVE = 10.0
 MAX_RESERVE = 60.0
 
+# Marge de sécurité autour des obstacles lors de l'évacuation : le
+# chemin les longe mais jamais à ras (choix utilisateur).
+OBSTACLE_CLEARANCE_M = 1.0
+
 # Activités du robot (machine à états)
 MOVING_ACTIVITIES = ('transit', 'work', 'to_station', 'resume',
                      'final_return')
@@ -202,7 +206,8 @@ class AgriRobotNode(Node):
                 self.activity = activity
                 self.paused = True
                 self.robot_status = 'paused'
-                self.get_logger().warning(
+                self
+.get_logger().warning(
                     'État rechargé : déplacement interrompu, en pause '
                     '(reprise via start_all_tasks)')
             else:
@@ -312,19 +317,36 @@ class AgriRobotNode(Node):
         o4 = orient(p3, p4, p2)
         return o1 != o2 and o3 != o4
 
+    def _inflate_ring(self, ring, margin):
+        """Gonfle un polygone d'obstacle vers l'extérieur de margin
+        mètres (approximation : éloigne chaque sommet du centroïde —
+        le chemin évite l'obstacle sans passer à ras)."""
+        cx = sum(p[0] for p in ring) / len(ring)
+        cy = sum(p[1] for p in ring) / len(ring)
+        out = []
+        for p in ring:
+            dx, dy = p[0] - cx, p[1] - cy
+            d = math.hypot(dx, dy)
+            if d < 1e-9:
+                out.append((p[0] + margin, p[1]))
+                continue
+            out.append((p[0] + dx / d * margin,
+                        p[1] + dy / d * margin))
+        return out
+
     def _route_in_zone(self, task, start, goal):
         """Plus court chemin SÛR dans la zone (graphe de visibilité) :
-        position, but et sommets du contour et des obstacles ; une
-        arête est valide si son segment ne traverse aucun anneau.
-        Renvoie None sans géométrie ou sans chemin (fallback)."""
+        position, but et sommets des obstacles GONFLÉS d'une marge de
+        sécurité ; une arête est valide si son segment ne traverse
+        aucun anneau d'obstacle. Le contour de la zone ne bloque PAS
+        (le portail est à l'extérieur du polygone — sinon aucun chemin
+        ne pourrait y accéder). Renvoie None sans géométrie ou sans
+        chemin (fallback backtrack)."""
         geo = task.get('geometry') or {}
         rings = []
-        boundary = geo.get('boundary') or []
-        if len(boundary) >= 3:
-            rings.append(boundary)
         for ring in geo.get('obstacles') or []:
             if len(ring) >= 3:
-                rings.append(ring)
+                rings.append(self._inflate_ring(ring, OBSTACLE_CLEARANCE_M))
         if not rings:
             return None
         pts = [tuple(start), tuple(goal)]
@@ -413,6 +435,7 @@ class AgriRobotNode(Node):
                     self.advance_route()
             elif self.activity == 'charging':
                 self.battery = min(100.0, self.battery + CHARGE_RATE)
+
                 target = RESUME_BATTERY if self.resume_pending else 100.0
                 if self.battery >= target:
                     self.finish_charging()
@@ -459,7 +482,8 @@ class AgriRobotNode(Node):
                 self.current_wp_idx = task.get('completed_waypoints', 0)
             else:
                 task['status'] = 'completed'
-                task['completed_waypoints'] = len(task['waypoints'])
+                task['completed_waypoints'] = len(task['waypoints']
+)
                 task['last_executed_at'] = datetime.now(
                     timezone.utc).isoformat()
                 self.current_task_idx += 1
@@ -491,14 +515,20 @@ class AgriRobotNode(Node):
         self.resume_pos = self.robot_pos
         # Itinéraire d'évacuation : plus court chemin SÛR vers le
         # portail de la zone (graphe de visibilité contournant les
-        # obstacles), puis Dijkstra sur les corridors jusqu'à la
-        # station. Sans géométrie : backtrack du chemin parcouru.
+        # obstacles à distance), puis Dijkstra sur les corridors
+        # jusqu'à la station. Sans géométrie : backtrack du chemin
+        # parcouru.
         portal = self._zone_portal(task)
         zone_route = (self._route_in_zone(task, self.robot_pos, portal)
                       if portal is not None else None)
         if zone_route:
             back = zone_route[1:]
+            self.get_logger().info(
+                'Évacuation : chemin optimal (visibilité) vers le portail')
         else:
+            self.get_logger().info(
+                'Évacuation : backtrack (géométrie de zone absente ou '
+                'sans chemin)')
             back = list(reversed(self._task_path(task)))
             if back and tuple(back[0]) == tuple(self.robot_pos):
                 back = back[1:]
@@ -551,7 +581,8 @@ class AgriRobotNode(Node):
         """Recharge terminée : reprise automatique de la mission si elle
         avait été interrompue, sinon repos."""
         has_pending = any(t.get('status') != 'completed'
-                          for t in self.tasks)
+     
+                     for t in self.tasks)
         if (self.resume_pending and self.tasks
                 and 0 <= self.current_task_idx < len(self.tasks)
                 and has_pending):
@@ -599,6 +630,7 @@ class AgriRobotNode(Node):
             self.activity = 'final_return'
         elif self.station_m:
             self.route = self.route_to(self.station_m)
+
             self.route_idx = 0
             self.activity = 'final_return'
         else:
@@ -652,7 +684,8 @@ class AgriRobotNode(Node):
             'totalSteps': total,
             'currentStep': done,
             'progress': round(done / total * 100.0, 1) if total else 0.0,
-            'waypoints': ([meters_to_latlng(x, y) for (x, y) in t['waypoints']]
+            'waypoints': ([meters_to_latlng(x, y) for (x, y) in t[
+'waypoints']]
                           if t.get('waypoints') else []),
             'lastExecutedAt': t.get('last_executed_at'),
         }
@@ -792,7 +825,8 @@ class AgriRobotNode(Node):
 
             elif action == 'emergency_stop':
                 # Arret IMMEDIAT, securite d'abord : le robot stoppe sur
-                # place et ses outils sont coupes / releves (simule).
+      
+          # place et ses outils sont coupes / releves (simule).
                 self.paused = True
                 self.robot_status = 'stopped'
                 self.get_logger().warning(
@@ -836,7 +870,8 @@ class AgriRobotNode(Node):
                 self.publish_mission_path()
                 self.get_logger().info('Mission annulée : retour à la station')
 
-            elif action == 'add_task':
+            elif action == 'add_task
+':
                 task = command.get('task', {})
                 wps = ([latlng_to_meters(p) for p in task['waypoints']]
                        if task.get('waypoints')
@@ -880,7 +915,8 @@ class AgriRobotNode(Node):
                 self.robot_status = 'going_to_charge'
                 self.get_logger().info('Robot going to charging station')
 
-            elif action == 'leave_charge':
+     
+       elif action == 'leave_charge':
                 self.robot_status = 'leaving_charge'
                 self.get_logger().info('Robot leaving charging station')
 
