@@ -253,6 +253,21 @@ class NavigationMixin:
                         or (j in (0, 1) and inside[ri][j]):
                     continue
                 m = len(r)
+                # Corde interdite : deux sommets du MÊME anneau ne
+                # sont reliables que s'ils sont ADJACENTS sur le
+                # contour — sinon le segment traverse l'obstacle en
+                # entrant/sortant par les sommets sans le « croiser ».
+                ia = ib = -1
+                for k in range(m):
+                    if (abs(r[k][0] - p[0]) < 1e-9
+                            and abs(r[k][1] - p[1]) < 1e-9):
+                        ia = k
+                    if (abs(r[k][0] - q[0]) < 1e-9
+                            and abs(r[k][1] - q[1]) < 1e-9):
+                        ib = k
+                if ia >= 0 and ib >= 0 and min((ia - ib) % m,
+                                               (ib - ia) % m) != 1:
+                    return True
                 for k in range(m):
                     if self._seg_cross(p, q, r[k], r[(k + 1) % m]):
                         return True
