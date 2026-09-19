@@ -192,6 +192,15 @@ class AgriRobotNode(Node):
             else:
                 self.activity = activity if activity == 'charging' else None
                 self.paused = False
+                if self.activity == 'charging':
+                    has_pending = any(t.get('status') != 'completed'
+                                      for t in self.tasks)
+                    in_range = 0 <= self.current_task_idx < len(self.tasks)
+                    if not (self.resume_pending and has_pending and in_range):
+                        # Charge orpheline (mission terminée ou état
+                        # corrompu par un crash) : retour au repos.
+                        self.activity = None
+                        self.robot_status = 'idle'
             self.get_logger().info(
                 f'État rechargé depuis {STATE_FILE} : '
                 f'{len(self.tasks)} tâche(s), batterie '
@@ -376,7 +385,11 @@ class AgriRobotNode(Node):
     def finish_charging(self):
         """Recharge terminée : reprise automatique de la mission si elle
         avait été interrompue, sinon repos."""
-        if self.resume_pending and self.tasks:
+        has_pending = any(t.get('status') != 'completed'
+                          for t in self.tasks)
+        if (self.resume_pending and self.tasks
+                and 0 <= self.current_task_idx < len(self.tasks)
+                and has_pending):
             task = self.tasks[self.current_task_idx]
             entry = (task['waypoints'][0]
                      if task.get('waypoints') else self.station_m)
@@ -385,6 +398,7 @@ class AgriRobotNode(Node):
                 self.route_idx = 0
                 self.activity = 'resume'
                 self.robot_status = 'leaving_charge'
+                self.resume_pending = False
                 self.get_logger().info('Batterie OK : retour vers la zone interrompue')
                 return
             self.task_phase = 'work'
@@ -482,6 +496,7 @@ class AgriRobotNode(Node):
                     'completedWaypoints': t.get('completed_waypoints', 0),
                 }
                 for t in self.tasks
+
             ]
         })
         self.mission_path_pub.publish(msg)
