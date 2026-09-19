@@ -15,30 +15,39 @@ Commandes (/task/command, String JSON) :
   stop_all_tasks, emergency_stop (arret immediat + outils coupes),
   pause_mission, cancel_mission (retour station), start_task, stop_task,
   go_to_charge, leave_charge, return_to_charge
+Refonte R4 : l'état complet (position, batterie, mission, progression,
+dernière exécution par tâche) est persisté dans ~/.agrirobot/state.json
+(écriture périodique + après chaque commande) et rechargé au démarrage
+du node — le robot survit à un reboot système. Une mission interrompue
+par le reboot repart en PAUSE (progression conservée).
 """
+
+import os
+import json
+from datetime import datetime, timezone
 
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 from geometry_msgs.msg import PoseStamped
-import json
 
 # Origine simulée (Paris) — cohérente avec la conversion lat/lng du frontend
 ORIGIN_LAT = 48.8566
 ORIGIN_LNG = 2.3522
 DEG_PER_METER = 0.00001
 
+# Fichier d'état persisté (refonte R4)
+STATE_FILE = os.path.join(
+    os.path.expanduser('~'), '.agrirobot', 'state.json')
 
 def meters_to_latlng(x, y):
     """Convertit des mètres (x vers l'est, y vers le nord) en [lat, lng]."""
     return [ORIGIN_LAT + y * DEG_PER_METER, ORIGIN_LNG + x * DEG_PER_METER]
 
-
 def latlng_to_meters(latlng):
     """Convertit un waypoint [lat, lng] du frontend en mètres (x, y)."""
     lat, lng = latlng[0], latlng[1]
     return ((lng - ORIGIN_LNG) / DEG_PER_METER, (lat - ORIGIN_LAT) / DEG_PER_METER)
-
 
 class AgriRobotNode(Node):
     def __init__(self):
@@ -72,12 +81,76 @@ class AgriRobotNode(Node):
         self.current_task_idx = 0
         self.current_wp_idx = 0
 
+        # Persistance (refonte R4) : compteur de ticks pour la
+        # sauvegarde périodique, puis rechargement du dernier état.
+        self._ticks = 0
+        self.load_state()
+
         self.get_logger().info('AgriRobot node is running!')
+
+    # ------------------------------------------------------------- persistance
+
+    def save_state(self):
+        """Écrit l'état complet dans state.json (atomique : fichier
+        temporaire puis remplacement). Rechargé au démarrage du node."""
+        state = {
+            'savedAt': datetime.now(timezone.utc).isoformat(),
+            'robot_status': self.robot_status,
+            'battery': self.battery,
+            'robot_pos': list(self.robot_pos),
+            'executing': self.executing,
+            'current_task_idx': self.current_task_idx,
+            'current_wp_idx': self.current_wp_idx,
+            'tasks': self.tasks,
+        }
+        try:
+            os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+            tmp = STATE_FILE + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(state, f, ensure_ascii=False)
+            os.replace(tmp, STATE_FILE)
+        except OSError as e:
+            self.get_logger().error(f'Impossible d écrire {STATE_FILE} : {e}')
+
+    def load_state(self):
+        """Recharge le dernier état sauvegardé (reboot du node). Une
+        mission interrompue repart en PAUSE : la progression est
+        conservée, l'opérateur reprend via start_all_tasks."""
+        if not os.path.exists(STATE_FILE):
+            return
+        try:
+            with open(STATE_FILE, encoding='utf-8') as f:
+                state = json.load(f)
+            self.tasks = state.get('tasks', [])
+            self.robot_status = state.get('robot_status', 'idle')
+            self.battery = state.get('battery', 100.0)
+            pos = state.get('robot_pos', [0.0, 0.0])
+            self.robot_pos = (pos[0], pos[1])
+            self.current_task_idx = state.get('current_task_idx', 0)
+            self.current_wp_idx = state.get('current_wp_idx', 0)
+            if state.get('executing'):
+                # Le node s'est arrêté en pleine mission : on ne repart
+                # pas tout seul — pause, progression conservée.
+                self.executing = False
+                self.robot_status = 'paused'
+                self.get_logger().warning(
+                    'État rechargé : mission interrompue, en pause '
+                    '(reprise via start_all_tasks)')
+            else:
+                self.executing = False
+            self.get_logger().info(
+                f'État rechargé depuis {STATE_FILE} : '
+                f'{len(self.tasks)} tâche(s), batterie '
+                f'{round(self.battery, 1)} %')
+        except (OSError, ValueError) as e:
+            self.get_logger().error(f'État illisible ({STATE_FILE}) : {e}')
 
     # ------------------------------------------------------------- simulation
 
     def tick(self):
-        """Tick 1 Hz : avance la mission si en cours, puis publie l'état."""
+        """Tick 1 Hz : avance la mission si en cours, puis publie l'état.
+        Sauvegarde périodique de l'état (toutes les 10 s, refonte R4)."""
+        self._ticks += 1
         if self.executing:
             self.advance_mission()
         self.publish_position()
@@ -85,6 +158,8 @@ class AgriRobotNode(Node):
         if self.tasks:
             self.publish_tasks_list()
             self.publish_mission_path()
+        if self._ticks % 10 == 0:
+            self.save_state()
 
     def advance_mission(self):
         """Avance le robot d'un waypoint ; termine la tâche puis la mission."""
@@ -100,11 +175,15 @@ class AgriRobotNode(Node):
         else:
             task['status'] = 'completed'
             task['completed_waypoints'] = len(wps)
+            # Refonte R4 : date de dernière exécution terminée,
+            # rapportée au frontend (lastExecutedAt).
+            task['last_executed_at'] = datetime.now(timezone.utc).isoformat()
             self.current_task_idx += 1
             self.current_wp_idx = 0
             if self.current_task_idx >= len(self.tasks):
                 self.executing = False
                 self.robot_status = 'idle'
+                self.save_state()
                 self.get_logger().info('Mission terminée')
 
     def generate_waypoints(self, index):
@@ -158,6 +237,8 @@ class AgriRobotNode(Node):
             # au reseau de chemins de liaison avant de generer la mission.
             'waypoints': ([meters_to_latlng(x, y) for (x, y) in t['waypoints']]
                           if t.get('waypoints') else []),
+            # Refonte R4 : date de dernière exécution terminée.
+            'lastExecutedAt': t.get('last_executed_at'),
         }
 
     def publish_tasks_list(self):
@@ -316,6 +397,8 @@ class AgriRobotNode(Node):
                 # rentre a la station de recharge (simule).
                 self.executing = False
                 self.tasks = []
+                self.current_task_idx = 0
+                self.current_wp_idx = 0
                 self.robot_status = 'returning_to_charge'
                 self.publish_tasks_list()
                 self.publish_mission_path()
@@ -343,15 +426,19 @@ class AgriRobotNode(Node):
 
         except Exception as e:
             self.get_logger().error(f'Error processing command: {e}')
-
+        finally:
+            # Refonte R4 : chaque commande (changement d'état) est
+            # persistée immédiatement.
+            self.save_state()
 
 def main(args=None):
     rclpy.init(args=args)
     node = AgriRobotNode()
     rclpy.spin(node)
+    # Refonte R4 : dernier état écrit à l'arrêt propre du node.
+    node.save_state()
     node.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
