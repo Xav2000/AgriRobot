@@ -179,12 +179,19 @@ class AgriRobotNode(Node):
             # rapportée au frontend (lastExecutedAt).
             task['last_executed_at'] = datetime.now(timezone.utc).isoformat()
             self.current_task_idx += 1
-            self.current_wp_idx = 0
             if self.current_task_idx >= len(self.tasks):
                 self.executing = False
                 self.robot_status = 'idle'
                 self.save_state()
                 self.get_logger().info('Mission terminée')
+            else:
+                # Reprise de la tâche suivante : sa progression conservée
+                # (completed_waypoints, p. ex. mission régénérée avec
+                # keepProgress, ou pause) doit être respectée quelle que
+                # soit sa position dans la file — pas seulement pour la
+                # première tâche au moment du start_all_tasks.
+                nxt = self.tasks[self.current_task_idx]
+                self.current_wp_idx = nxt.get('completed_waypoints', 0)
 
     def generate_waypoints(self, index):
         """Chemin simulé en zigzag (3 allers-retours), décalé par tâche."""
@@ -331,11 +338,18 @@ class AgriRobotNode(Node):
                     done = (previous[tid].get('completed_waypoints', 0)
                             if (command.get('keepProgress')
                                 and tid in previous) else 0)
+                    # Statut conservé si keepProgress : une tâche déjà
+                    # terminée reste terminée (sautée à la reprise), une
+                    # tâche entamée reste entamée.
+                    status = 'pending'
+                    if (command.get('keepProgress') and tid in previous
+                            and previous[tid].get('status') == 'completed'):
+                        status = 'completed'
                     self.tasks.append({
                         'id': tid,
                         'name': t.get('name', f'Tâche {i + 1}'),
                         'type': t.get('type', 'custom'),
-                        'status': 'pending',
+                        'status': status,
                         'field': t.get('field'),
                         'waypoints': wps,
                         'completed_waypoints': done,
