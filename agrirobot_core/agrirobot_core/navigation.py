@@ -283,14 +283,27 @@ class NavigationMixin:
         portal = self._zone_portal(task)
         zone_route = (self._route_in_zone(task, self.robot_pos, portal)
                       if portal is not None else None)
+        geo = task.get('geometry') or {}
+        n_obs = len(geo.get('obstacles') or [])
         if zone_route:
             back = zone_route[1:]
             self.get_logger().info(
                 'Évacuation : chemin optimal (visibilité) vers le portail')
         else:
-            self.get_logger().info(
-                'Évacuation : backtrack (géométrie de zone absente ou '
-                'sans chemin)')
+            if portal is None:
+                self.get_logger().warning(
+                    'Évacuation : backtrack (pas de portail — transit '
+                    'absent, tâche manuelle ?)')
+            elif n_obs == 0:
+                self.get_logger().warning(
+                    'Évacuation : backtrack (géométrie ABSENTE — '
+                    'frontend non rebuildé ou waypoints hors zone '
+                    'de tonte ?)')
+            else:
+                self.get_logger().warning(
+                    f'Évacuation : backtrack (aucun chemin sûr avec '
+                    f'{n_obs} obstacle(s) gonflé(s) de '
+                    f'{OBSTACLE_CLEARANCE_M} m)')
             back = list(reversed(self._task_path(task)))
             if back and tuple(back[0]) == tuple(self.robot_pos):
                 back = back[1:]

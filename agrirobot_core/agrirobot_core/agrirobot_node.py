@@ -440,6 +440,10 @@ class AgriRobotNode(NavigationMixin, Node):
                         'geometry': geometry,
                         'completed_waypoints': done,
                     })
+                n_geo = sum(1 for t in self.tasks if t.get('geometry'))
+                self.get_logger().info(
+                    f'Mission générée : {len(self.tasks)} tâche(s), '
+                    f'{n_geo} avec géométrie de zone')
                 # Réseau de circulation (retours d'urgence) + station +
                 # route de retour pré-calculée
                 graph = command.get('graph') or {}
