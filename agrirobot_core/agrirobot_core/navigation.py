@@ -171,6 +171,13 @@ class NavigationMixin:
                         p[1] + dy / d * margin))
         return out
 
+    def _evac_note(self, msg):
+        """Log d'évacuation dédupliqué (battery_reserve appelle à
+        chaque tick) : ne loggue que si le message change."""
+        if getattr(self, '_last_evac_note', None) != msg:
+            self._last_evac_note = msg
+            self.get_logger().info(msg)
+
     def _point_in_ring(self, p, ring):
         """Vrai si p est à l'intérieur du polygone ring (ray casting)."""
         inside = False
@@ -193,7 +200,7 @@ class NavigationMixin:
             path = self._route_in_zone_at(task, start, goal, margin)
             if path is not None:
                 if margin < OBSTACLE_CLEARANCE_M:
-                    self.get_logger().info(
+                    self._evac_note(
                         f'Chemin sûr trouvé avec marge réduite à '
                         f'{margin} m (départ ou portail proche de '
                         f"l'obstacle)")
@@ -227,7 +234,7 @@ class NavigationMixin:
         inside = [[self._point_in_ring(pts[i], r) for i in (0, 1)]
                   for r in rings]
         if any(any(pair) for pair in inside):
-            self.get_logger().info(
+            self._evac_note(
                 'Évacuation : départ ou portail dans l\'obstacle — '
                 'échappement par le sommet le plus proche')
 
@@ -347,6 +354,20 @@ class NavigationMixin:
                     f'Évacuation : backtrack (aucun chemin sûr avec '
                     f'{n_obs} obstacle(s) gonflé(s) de '
                     f'{OBSTACLE_CLEARANCE_M} m)')
+                geo = task.get('geometry') or {}
+                for ri, ring in enumerate(geo.get('obstacles') or []):
+                    if not ring:
+                        continue
+                    d_min = min(math.hypot(self.robot_pos[0] - p[0],
+                                           self.robot_pos[1] - p[1])
+                                for p in ring)
+                    self.get_logger().warning(
+                        f'  diag: robot={tuple(round(v, 1) for v in self.robot_pos)} '
+                        f'portal={tuple(round(v, 1) for v in portal)} '
+                        f'obst{ri}: {len(ring)} sommets, dist_min={d_min:.2f} m, '
+                        f'robot_in={self._point_in_ring(self.robot_pos, ring)}, '
+                        f'portal_in={self._point_in_ring(portal, ring)}, '
+                        f'sommets={[tuple(round(v, 1) for v in p) for p in ring]}')
             back = list(reversed(self._task_path(task)))
             if back and tuple(back[0]) == tuple(self.robot_pos):
                 back = back[1:]
