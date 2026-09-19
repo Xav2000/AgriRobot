@@ -206,8 +206,7 @@ class AgriRobotNode(Node):
                 self.activity = activity
                 self.paused = True
                 self.robot_status = 'paused'
-                self
-.get_logger().warning(
+                self.get_logger().warning(
                     'État rechargé : déplacement interrompu, en pause '
                     '(reprise via start_all_tasks)')
             else:
@@ -870,8 +869,7 @@ class AgriRobotNode(Node):
                 self.publish_mission_path()
                 self.get_logger().info('Mission annulée : retour à la station')
 
-            elif action == 'add_task
-':
+            elif action == 'add_task':
                 task = command.get('task', {})
                 wps = ([latlng_to_meters(p) for p in task['waypoints']]
                        if task.get('waypoints')
@@ -915,8 +913,7 @@ class AgriRobotNode(Node):
                 self.robot_status = 'going_to_charge'
                 self.get_logger().info('Robot going to charging station')
 
-     
-       elif action == 'leave_charge':
+            elif action == 'leave_charge':
                 self.robot_status = 'leaving_charge'
                 self.get_logger().info('Robot leaving charging station')
 
