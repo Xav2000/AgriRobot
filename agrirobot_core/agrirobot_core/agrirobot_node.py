@@ -41,11 +41,12 @@ from geometry_msgs.msg import PoseStamped
 
 
 from .geo import *
+from .automation import AutomationMixin
 from .navigation import NavigationMixin
 from .weather import WeatherMonitor
 
 
-class AgriRobotNode(NavigationMixin, Node):
+class AgriRobotNode(NavigationMixin, AutomationMixin, Node):
 
     # ------------------------------------------------------------- persistance
 
@@ -336,6 +337,8 @@ class AgriRobotNode(NavigationMixin, Node):
             'battery': round(self.battery, 1),
             'position': {'x': self.robot_pos[0], 'y': self.robot_pos[1]},
             'weather': self.weather.snapshot(),
+            'config': self.robot_config,
+            'auto': self.auto_snapshot(),
         })
         self.robot_status_pub.publish(msg)
 
@@ -455,13 +458,15 @@ class AgriRobotNode(NavigationMixin, Node):
                                     for e in graph.get('edges', [])]
                 self.station_m = (latlng_to_meters(command['station'])
                                   if command.get('station') else None)
+                if command.get('station'):
+                    # Meteo : la station sert de reference.
+                    self.weather.set_location(command['station'][0],
+                                              command['station'][1])
                 self.return_route_m = ([latlng_to_meters(p)
                                         for p in command.get('returnRoute', [])]
                                        if command.get('returnRoute') else [])
                 self.publish_tasks_list()
                 self.publish_mission_path()
-                self.get_logger().info(
-                    f'Mission générée : {len(self.tasks)} tâche(s)')
 
             elif action == 'start_all_tasks':
                 if not self.tasks:
@@ -634,6 +639,12 @@ class AgriRobotNode(NavigationMixin, Node):
                     self.weather.toggle()
                 else:
                     self.weather.set_override(command.get('condition'))
+
+            elif action == 'set_robot_config':
+                self.handle_set_robot_config(command)
+
+            elif action == 'set_auto_mode':
+                self.handle_set_auto_mode(command)
             elif action == 'go_to_charge':
                 self.robot_status = 'going_to_charge'
                 self.get_logger().info('Robot going to charging station')
@@ -660,6 +671,8 @@ def main(args=None):
     # override de dev via set_weather_override. Non persiste.
     node.weather = WeatherMonitor()
     node.weather.start()
+    # Mode automatique (6.10b) : boucle de securite 60 s.
+    node.init_automation()
     try:
         rclpy.spin(node)
     finally:

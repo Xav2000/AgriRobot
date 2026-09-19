@@ -7,6 +7,14 @@ export interface RobotStatus {
   battery: number;
   position?: { x: number; y: number };
   weather?: { condition: 'sun' | 'rain'; source: 'service' | 'override' | 'unknown' };
+  config?: { batteryMin: number; batteryFull: number };
+  auto?: { enabled: boolean; journal: AutoJournalEntry[] };
+}
+
+/** Entrée du journal des décisions du mode automatique (node). */
+export interface AutoJournalEntry {
+  at: string;
+  message: string;
 }
 
 /** Ecoute /robot/status et expose l'etat courant du robot. */

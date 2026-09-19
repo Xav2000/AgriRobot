@@ -2,6 +2,7 @@ import React from 'react';
 import { AppBar, Toolbar, Typography, Box, Stack, IconButton, Chip } from '@mui/material';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
+import SettingsIcon from '@mui/icons-material/Settings';
 import MapView from './maps/MapView';
 import { RobotStatusBar } from './dashboard/RobotStatusBar';
 import { ZoneToolbar } from './maps/ZoneToolbar';
@@ -10,6 +11,7 @@ import PlanningSidebar from './sidebars/PlanningSidebar';
 import ZonesSidebar from './sidebars/ZonesSidebar';
 import CorridorsSidebar from './sidebars/CorridorsSidebar';
 import WorklinesSidebar from './sidebars/WorklinesSidebar';
+import SettingsSidebar from './sidebars/SettingsSidebar';
 import { useRos } from './hooks/useRos';
 import { useColorMode } from './ColorModeContext';
 import { UiModeProvider, useUiMode } from './context/UiModeContext';
@@ -43,6 +45,9 @@ const SidebarSwitcher: React.FC = () => {
       <Box sx={{ display: mode === 'worklines' ? 'block' : 'none' }}>
         <WorklinesSidebar />
       </Box>
+      <Box sx={{ display: mode === 'settings' ? 'block' : 'none' }}>
+        <SettingsSidebar />
+      </Box>
     </>
   );
 };
@@ -57,6 +62,21 @@ const MapOverlays: React.FC = () => {
   const { mode } = useUiMode();
   if (mode !== 'zones' && mode !== 'corridors') return null;
   return <ZoneToolbar />;
+};
+
+/** Bouton réglages de l'AppBar (étape 6.10b) : ouvre la sidebar de
+ * configuration du robot (seuils batterie, plus tard géométrie, etc.). */
+const SettingsButton: React.FC = () => {
+  const { setMode } = useUiMode();
+  return (
+    <IconButton
+      onClick={() => setMode('settings')}
+      color="inherit"
+      aria-label="réglages du robot"
+    >
+      <SettingsIcon />
+    </IconButton>
+  );
 };
 
 function App() {
@@ -100,6 +120,7 @@ function App() {
                   <RobotStatusBar />
                 </Box>
                 <Chip label={'ROS 2 : ' + statusText} color={statusColor as any} size="small" sx={{ mr: 1, flexShrink: 0 }} />
+                <SettingsButton />
                 <IconButton onClick={toggleColorMode} color="inherit" aria-label="basculer le mode sombre">
                   {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
                 </IconButton>

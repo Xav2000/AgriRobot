@@ -17,6 +17,7 @@ import threading
 import urllib.request
 
 POLL_INTERVAL_S = 300.0
+WEATHER_FILE = os.path.expanduser('~/.agrirobot/weather.json')
 
 
 class WeatherMonitor:
@@ -31,6 +32,7 @@ class WeatherMonitor:
         self._lng = float(os.environ.get('AGRIROBOT_LNG', '2.35'))
         self._interval = interval_s
         self._timer = None
+        self._load_location()
 
     # ---- dev override (prioritaire, non persiste) ----
     def set_override(self, condition):
@@ -45,6 +47,34 @@ class WeatherMonitor:
                 self._override = None
             else:
                 self._override = 'rain' if self._service == 'sun' else 'sun'
+
+    # ---- localisation (station de recharge, persistee) ----
+    def set_location(self, lat, lng):
+        """Position meteorologique de reference (la station)."""
+        try:
+            lat = float(lat)
+            lng = float(lng)
+        except (TypeError, ValueError):
+            return
+        with self._lock:
+            self._lat = lat
+            self._lng = lng
+        try:
+            os.makedirs(os.path.dirname(WEATHER_FILE), exist_ok=True)
+            with open(WEATHER_FILE, 'w', encoding='utf-8') as f:
+                json.dump({'lat': lat, 'lng': lng}, f)
+        except OSError:
+            pass
+
+    def _load_location(self):
+        try:
+            with open(WEATHER_FILE, encoding='utf-8') as f:
+                data = json.load(f)
+            with self._lock:
+                self._lat = float(data.get('lat', self._lat))
+                self._lng = float(data.get('lng', self._lng))
+        except (OSError, ValueError, TypeError):
+            pass
 
     # ---- etat expose dans /robot/status ----
     def snapshot(self):

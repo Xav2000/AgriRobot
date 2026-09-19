@@ -5,8 +5,9 @@ import React, { createContext, useCallback, useContext, useRef, useState } from 
  * seul le contenu de la sidebar gauche change selon le mode actif.
  * 'worklines' : paramètres de génération des lignes de guidage (étape 6.2).
  * 'corridors' : dessin/édition des chemins de liaison (étape 6.6).
+ * 'settings' : réglages du robot (étape 6.10b).
  */
-export type UiMode = 'dashboard' | 'planning' | 'zones' | 'corridors' | 'worklines';
+export type UiMode = 'dashboard' | 'planning' | 'zones' | 'corridors' | 'worklines' | 'settings';
 
 interface UiModeContextValue {
   mode: UiMode;

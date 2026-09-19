@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Card, CardContent, Typography, Stack, Button,
+  Card, CardContent, Typography, Stack, Button, Switch, FormControlLabel,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material';
 import ScheduleIcon from '@mui/icons-material/Schedule';
@@ -14,6 +14,12 @@ import { CurrentTaskCard } from '../dashboard/CurrentTaskCard';
 import { useTasks } from '../hooks/useTasks';
 import { useRos } from '../hooks/useRos';
 import { useUiMode } from '../context/UiModeContext';
+import { usePlan } from '../context/PlanContext';
+import { useZones } from '../context/ZonesContext';
+import { useStation } from '../context/StationContext';
+import { useRobotStatus } from '../hooks/useRobotStatus';
+import { buildMissionPayload } from '../lib/mission';
+import { isTaskDue } from '../lib/schedule';
 
 /**
  * Sidebar du mode Dashboard (l'état du robot est désormais dans la
@@ -27,6 +33,10 @@ const DashboardSidebar: React.FC = () => {
   const { ros, connectionState } = useRos();
   const { hasRunningTask, tasks } = useTasks();
   const { setMode } = useUiMode();
+  const { queue } = usePlan();
+  const { zones, corridors } = useZones();
+  const { station } = useStation();
+  const { robotStatus } = useRobotStatus();
 
   const disabled = connectionState !== 'connected';
 
@@ -94,6 +104,42 @@ const DashboardSidebar: React.FC = () => {
   const handleSetSpeed = (multiplier: number) =>
     sendCommand({ action: 'set_speed', multiplier });
 
+  // Mode automatique (6.10b) : à l'armement on régénère la mission avec
+  // les tâches actives ET dues (progression conservée), puis on arme la
+  // boucle de vérification côté node (tick 60 s : météo, batterie,
+  // station, mission). Le journal des décisions s'affiche sous le switch.
+  const autoState = robotStatus?.auto;
+  const handleSetAutoMode = (enabled: boolean) => {
+    if (enabled) {
+      if (!station) {
+        window.alert("Pose d'abord la station de recharge.");
+        return;
+      }
+      const dueTasks = queue.filter(t => t.enabled !== false && isTaskDue(t));
+      if (dueTasks.length === 0) {
+        window.alert('Aucune tâche planifiée maintenant dans la file.');
+        return;
+      }
+      try {
+        const payload = buildMissionPayload(dueTasks, corridors, station, zones);
+        sendCommand({
+          action: 'generate_mission',
+          tasks: payload.tasks,
+          keepProgress: true,
+          graph: payload.graph,
+          station: payload.station,
+          returnRoute: payload.returnRoute,
+        });
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : String(e));
+        return;
+      }
+      setTimeout(() => sendCommand({ action: 'set_auto_mode', enabled: true }), 500);
+    } else {
+      sendCommand({ action: 'set_auto_mode', enabled: false });
+    }
+  };
+
   return (
     <>
       {/* Tâche en cours avec progression */}
@@ -132,6 +178,37 @@ const DashboardSidebar: React.FC = () => {
               </Button>
             )}
           </Stack>
+        </CardContent>
+      </Card>
+
+      {/* Mode automatique (6.10b) : le robot démarre seul la mission
+          quand toutes les conditions sont réunies (météo, batterie,
+          station reliée). La pause opérateur n'est jamais outrepassée. */}
+      <Card>
+        <CardContent>
+          <Typography variant="subtitle2" gutterBottom>
+            Mode automatique
+          </Typography>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={autoState?.enabled ?? false}
+                onChange={e => handleSetAutoMode(e.target.checked)}
+                disabled={disabled}
+              />
+            }
+            label="Démarre seul les tâches planifiées"
+          />
+          {(autoState?.journal ?? []).slice(-5).reverse().map((entry, i) => (
+            <Typography
+              key={i}
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block' }}
+            >
+              {new Date(entry.at).toLocaleTimeString('fr-FR')} — {entry.message}
+            </Typography>
+          ))}
         </CardContent>
       </Card>
 
