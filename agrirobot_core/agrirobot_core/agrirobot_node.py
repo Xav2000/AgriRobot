@@ -909,6 +909,31 @@ class AgriRobotNode(Node):
                 self.robot_status = 'idle'
                 self.get_logger().info('Stopped current task')
 
+            elif action == 'reset_mission':
+                # Purge complète de la progression : toutes les tâches
+                # repassent à pending, tout l'état d'exécution interne
+                # est réinitialisé. Position du robot, batterie et date
+                # de dernière exécution (lastExecutedAt) sont conservées.
+                for t in self.tasks:
+                    t['status'] = 'pending'
+                    t['progress'] = 0
+                    t['currentStep'] = 0
+                self.current_task_idx = 0
+                self.task_phase = 'transit'
+                self.current_wp_idx = 0
+                self.route = []
+                self.route_idx = 0
+                self.resume_pending = False
+                self.resume_pos = None
+                self.resume_task_phase = 'work'
+                self.activity = None
+                self.paused = False
+                self.robot_status = 'idle'
+                self.save_state()
+                self.publish_tasks_list()
+                self.publish_mission_path()
+                self.get_logger().info(
+                    'Mission réinitialisée : toutes les tâches sont à nouveau en attente')
             elif action == 'go_to_charge':
                 self.robot_status = 'going_to_charge'
                 self.get_logger().info('Robot going to charging station')

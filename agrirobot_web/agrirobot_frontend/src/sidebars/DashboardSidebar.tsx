@@ -36,6 +36,28 @@ const DashboardSidebar: React.FC = () => {
   // Le choix pause / annulation est ensuite fait dans la fenêtre.
   const [stopDialogOpen, setStopDialogOpen] = useState(false);
 
+  // Toutes les zones sont terminées à 100 % : avant de relancer, on
+  // propose de réinitialiser la mission (purge complète de la
+  // progression) plutôt que de refaire les transits pour rien.
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const allCompleted =
+    tasks.length > 0 && tasks.every(t => t.status === 'completed');
+
+  const handleStart = () => {
+    if (allCompleted) {
+      setResetDialogOpen(true);
+      return;
+    }
+    handleTaskCommand('start_all_tasks');
+  };
+
+  const handleResetAndStart = () => {
+    setResetDialogOpen(false);
+    handleTaskCommand('reset_mission');
+    // léger délai : laisser le node traiter le reset avant le départ
+    setTimeout(() => handleTaskCommand('start_all_tasks'), 500);
+  };
+
   const handleEmergencyStop = () => {
     handleTaskCommand('emergency_stop');
     setStopDialogOpen(true);
@@ -47,7 +69,7 @@ const DashboardSidebar: React.FC = () => {
 
   const handleTaskCommand = (
     action: 'start_all_tasks' | 'stop_all_tasks' | 'emergency_stop'
-      | 'pause_mission' | 'cancel_mission'
+      | 'pause_mission' | 'cancel_mission' | 'reset_mission'
   ) => {
     if (!ros || disabled) return;
     const cmdPub = new ROSLIB.Topic({
@@ -86,7 +108,7 @@ const DashboardSidebar: React.FC = () => {
                 variant="contained"
                 color="success"
                 startIcon={<PlayArrowIcon />}
-                onClick={() => handleTaskCommand('start_all_tasks')}
+                onClick={handleStart}
                 disabled={disabled}
                 fullWidth
               >
@@ -164,6 +186,26 @@ const DashboardSidebar: React.FC = () => {
             onClick={() => { setStopDialogOpen(false); handleTaskCommand('pause_mission'); }}
           >
             Mettre en pause
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Toutes les zones terminées : confirmation de réinitialisation
+          avant de relancer une mission complète. */}
+      <Dialog open={resetDialogOpen} onClose={() => setResetDialogOpen(false)}>
+        <DialogTitle>Toutes les zones sont terminées</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Les zones de tonte ont déjà été effectuées à 100 %.
+            Veux-tu réinitialiser la progression et lancer une nouvelle mission ?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setResetDialogOpen(false)}>
+            Annuler
+          </Button>
+          <Button variant="contained" color="success" onClick={handleResetAndStart}>
+            Réinitialiser et démarrer
           </Button>
         </DialogActions>
       </Dialog>
