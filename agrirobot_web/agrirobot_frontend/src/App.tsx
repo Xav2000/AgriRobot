@@ -49,11 +49,13 @@ const SidebarSwitcher: React.FC = () => {
 
 /**
  * Superpositions de la carte selon le mode : toolbar d'édition visible
- * en mode zones (polygones), planification et chemins de liaison.
+ * en modes zones et corridors SEULEMENT — la planification n'est que
+ * l'organisation des tâches et la génération du parcours, l'édition des
+ * polygones/chemins n'y a pas lieu (choix utilisateur).
  */
 const MapOverlays: React.FC = () => {
   const { mode } = useUiMode();
-  if (mode !== 'zones' && mode !== 'planning' && mode !== 'corridors') return null;
+  if (mode !== 'zones' && mode !== 'corridors') return null;
   return <ZoneToolbar />;
 };
 
