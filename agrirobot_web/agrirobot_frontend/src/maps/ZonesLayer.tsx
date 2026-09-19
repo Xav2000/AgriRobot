@@ -10,8 +10,11 @@ import { useUiMode } from '../context/UiModeContext';
  *  liaison se colle au portail (point d'entrée) de la zone proche. */
 const SNAP_PX = 20;
 
-/** Modes dans lesquels les chemins de liaison sont dessinables/éditables. */
-export const CORRIDOR_MODES = ['zones', 'planning', 'corridors'];
+/** Modes dans lesquels les chemins de liaison sont dessinables/éditables.
+ *  La PLANIFICATION n'en fait PAS partie : c'est l'organisation des
+ *  tâches et la génération du parcours, pas l'édition — les chemins y
+ *  sont visibles mais non cliquables/éditables (choix utilisateur). */
+export const CORRIDOR_MODES = ['zones', 'corridors'];
 
 /** Aimante le point sur le portail d'une zone s'il est assez proche. */
 const snapToPortail = (
@@ -102,9 +105,9 @@ const portailIcon = L.divIcon({
  * Clic sur la carte (seulement si le mode AJOUT est actif dans la
  * toolbar — désactivé à l'édition d'un objet existant, pour ne pas
  * créer des sommets parasites à côté de ceux qu'on déplace) :
- * - chemin de liaison sélectionné (modes zones, planification et
- *   chemins, édition active) : prolonge le tracé, avec aimantation sur
- *   le portail d'une zone si le clic est proche ;
+ * - chemin de liaison sélectionné (modes zones et chemins, édition
+ *   active) : prolonge le tracé, avec aimantation sur le portail d'une
+ *   zone si le clic est proche ;
  * - zone sélectionnée (mode zones, édition active) : ajoute un sommet.
  * Pendant l'édition, les clics sur les polygones existants traversent
  * (aucune sélection détournée) — on peut ainsi dessiner une exclusion à
@@ -183,9 +186,10 @@ const CorridorRubberBand: React.FC = () => {
  * - poignées de sommets sur la zone sélectionnée, uniquement en mode
  *   zones avec édition active : glisser pour déplacer, clic droit pour
  *   supprimer
- * - chemins de liaison : sélection/édition en modes zones, planification
- *   et chemins, élastique de tracé, pastilles médianes cliquables pour
- *   insérer un sommet, aimantation des points sur les portails
+ * - chemins de liaison : sélection/édition en modes zones et chemins
+ *   (PAS en planification — rien n'y est éditable), élastique de tracé,
+ *   pastilles médianes cliquables pour insérer un sommet, aimantation
+ *   des points sur les portails
  * - tooltips MASQUÉS pendant l'édition : sinon le label sticky suit le
  *   curseur et masque le portail (point d'entrée) qu'on veut cliquer —
  *   masqués par OPACITÉ, jamais démontés (crash Leaflet, voir
@@ -208,6 +212,13 @@ export const ZonesLayer: React.FC = () => {
 
   const corridorModes = CORRIDOR_MODES.includes(mode);
   const editing = corridorModes && editMode && (selectedZoneId !== null || selectedCorridorId !== null);
+
+  // Quitter un mode éditable coupe l'édition : pas d'état d'édition
+  // fantôme qui survit au changement de menu (la sélection est
+  // conservée, seule la session d'édition se ferme).
+  useEffect(() => {
+    if (!corridorModes && editMode) setEditMode(false);
+  }, [corridorModes, editMode, setEditMode]);
 
   // Curseur croix pendant l'édition
   useEffect(() => {
@@ -339,9 +350,9 @@ export const ZonesLayer: React.FC = () => {
       })}
 
       {/* Chemins de liaison (étape 6.6) : polyline bleue, cliquable hors
-          édition (sélection + édition) en modes zones, planification et
-          chemins, poignées et pastilles médianes en édition, élastique de
-          tracé, aimantation des points sur les portails des zones.
+          édition (sélection + édition) en modes zones et chemins,
+          poignées et pastilles médianes en édition, élastique de tracé,
+          aimantation des points sur les portails des zones.
           Invalide (n'entre dans aucune zone / traverse une exclusion) :
           tracé pointillé + warning dans le tooltip. */}
       {corridors.map(corridor => {
