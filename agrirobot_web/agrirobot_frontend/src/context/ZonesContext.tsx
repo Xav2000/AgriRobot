@@ -1,4 +1,5 @@
-import React, { createContext, useCallback, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { loadSlice, saveSlice } from '../lib/storage';
 
 export type ZoneType = 'mow' | 'exclusion';
 
@@ -76,6 +77,8 @@ interface ZonesContextValue {
   updateCorridorVertex: (index: number, point: [number, number]) => void;
   /** Insère un sommet à l'index donné (point médian cliqué) */
   insertCorridorVertex: (index: number, point: [number, number]) => void;
+  /** Import d'une sauvegarde (refonte R1) : remplace zones et chemins */
+  importAll: (zones: Zone[], corridors: Corridor[]) => void;
 }
 
 const ZonesContext = createContext<ZonesContextValue | null>(null);
@@ -87,15 +90,21 @@ const ZonesContext = createContext<ZonesContextValue | null>(null);
  * - 'exclusion' : obstacle / non-tonte (rouge, NON listée dans la sidebar —
  *   édition par clic sur la carte) — les lignes de guidage générées ne
  *   devront jamais la traverser.
- * Persistance (JSON hors navigateur) à venir.
+ * Persistance (refonte R1) : localStorage automatique + export/import
+ * d'un document JSON complet.
  */
 export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [zones, setZones] = useState<Zone[]>([]);
+  const [zones, setZones] = useState<Zone[]>(() => loadSlice<Zone[]>('zones', []));
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [addMode, setAddMode] = useState(false);
-  const [corridors, setCorridors] = useState<Corridor[]>([]);
+  const [corridors, setCorridors] = useState<Corridor[]>(() => loadSlice<Corridor[]>('corridors', []));
   const [selectedCorridorId, setSelectedCorridorId] = useState<string | null>(null);
+
+  // Sauvegarde automatique (refonte R1) : le frontend est la source de
+  // vérité, zones et chemins survivent au rechargement de la page.
+  useEffect(() => { saveSlice('zones', zones); }, [zones]);
+  useEffect(() => { saveSlice('corridors', corridors); }, [corridors]);
 
   const addZone = useCallback((type: ZoneType = 'mow') => {
     const mowCount = zones.filter(z => z.type === 'mow').length;
@@ -257,6 +266,14 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (id !== null) setSelectedZoneId(null);
   }, []);
 
+  // Import d'une sauvegarde (refonte R1)
+  const importAll = useCallback((nextZones: Zone[], nextCorridors: Corridor[]) => {
+    setZones(nextZones);
+    setCorridors(nextCorridors);
+    setSelectedZoneId(null);
+    setSelectedCorridorId(null);
+  }, []);
+
   const value: ZonesContextValue = {
     zones,
     selectedZoneId,
@@ -284,6 +301,7 @@ export const ZonesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     updateCorridorVertex,
     insertCorridorVertex,
     selectCorridor,
+    importAll,
   };
 
   return <ZonesContext.Provider value={value}>{children}</ZonesContext.Provider>;
