@@ -171,6 +171,18 @@ class NavigationMixin:
                         p[1] + dy / d * margin))
         return out
 
+    def _point_in_ring(self, p, ring):
+        """Vrai si p est à l'intérieur du polygone ring (ray casting)."""
+        inside = False
+        for i in range(len(ring)):
+            a, b = ring[i], ring[(i + 1) % len(ring)]
+            if (a[1] > p[1]) != (b[1] > p[1]):
+                x = ((b[0] - a[0]) * (p[1] - a[1])
+                     / (b[1] - a[1])) + a[0]
+                if p[0] < x:
+                    inside = not inside
+        return inside
+
     def _route_in_zone(self, task, start, goal):
         """Plus court chemin SÛR : tente la marge de sécurité
         pleine (OBSTACLE_CLEARANCE_M), puis des marges réduites
@@ -208,11 +220,25 @@ class NavigationMixin:
             pts += [tuple(p) for p in r]
         n = len(pts)
 
+        # Départ ou but DANS un obstacle (robot tonde au ras de
+        # l'exclusion, ou portail avalé par le gonflage) : l'évacuation
+        # doit pouvoir EN SORTIR — les segments qui quittent cet
+        # anneau-là ne sont pas bloqués.
+        inside = [[self._point_in_ring(pts[i], r) for i in (0, 1)]
+                  for r in rings]
+        if any(any(pair) for pair in inside):
+            self.get_logger().info(
+                'Évacuation : départ ou portail dans l\'obstacle — '
+                'échappement par le sommet le plus proche')
+
         def blocked(i, j):
             p, q = pts[i], pts[j]
             if abs(p[0] - q[0]) < 1e-9 and abs(p[1] - q[1]) < 1e-9:
                 return True
-            for r in rings:
+            for ri, r in enumerate(rings):
+                if (i in (0, 1) and inside[ri][i]) \
+                        or (j in (0, 1) and inside[ri][j]):
+                    continue
                 m = len(r)
                 for k in range(m):
                     if self._seg_cross(p, q, r[k], r[(k + 1) % m]):
