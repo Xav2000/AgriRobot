@@ -605,6 +605,26 @@ class AgriRobotNode(NavigationMixin, Node):
                 self.publish_mission_path()
                 self.get_logger().info(
                     'Mission réinitialisée : toutes les tâches sont à nouveau en attente')
+            elif action == 'set_battery':
+                # Outil de test : force le niveau de batterie.
+                level = float(command.get('level', 100.0))
+                self.battery = max(0.0, min(100.0, level))
+                self.save_state()
+                self.get_logger().info(
+                    f'Batterie forcée à {self.battery:.1f} % (test)')
+
+            elif action == 'set_speed':
+                # Outil de test : multiplicateur de vitesse de
+                # simulation (recrée le timer de tick).
+                mult = max(0.25, min(4.0,
+                                     float(command.get('multiplier', 1.0))))
+                self.speed_multiplier = mult
+                self.timer.cancel()
+                self.timer = self.create_timer(0.5 / mult, self.tick)
+                self.get_logger().info(
+                    f'Vitesse de simulation x{mult} (tick '
+                    f'toutes les {0.5 / mult:.2f} s)')
+
             elif action == 'go_to_charge':
                 self.robot_status = 'going_to_charge'
                 self.get_logger().info('Robot going to charging station')

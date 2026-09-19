@@ -67,18 +67,32 @@ const DashboardSidebar: React.FC = () => {
   // - Pas de tâche en cours ET ROS connecté
   const robotInactive = !hasRunningTask && !disabled;
 
-  const handleTaskCommand = (
-    action: 'start_all_tasks' | 'stop_all_tasks' | 'emergency_stop'
-      | 'pause_mission' | 'cancel_mission' | 'reset_mission'
-  ) => {
+  // Commande générique vers /task/command (actions simples ou
+  // commandes de test avec paramètres — batterie, vitesse).
+  const sendCommand = (payload: Record<string, unknown>) => {
     if (!ros || disabled) return;
     const cmdPub = new ROSLIB.Topic({
       ros,
       name: '/task/command',
       messageType: 'std_msgs/String',
     });
-    cmdPub.publish(new ROSLIB.Message({ data: JSON.stringify({ action }) }));
+    cmdPub.publish(new ROSLIB.Message({ data: JSON.stringify(payload) }));
   };
+
+  const handleTaskCommand = (
+    action: 'start_all_tasks' | 'stop_all_tasks' | 'emergency_stop'
+      | 'pause_mission' | 'cancel_mission' | 'reset_mission'
+  ) => {
+    sendCommand({ action });
+  };
+
+  // Panneau de développement : forcer la batterie et la vitesse de
+  // simulation pour tester toutes les situations (coupure batterie
+  // où l'on veut, accélérer / ralentir la simu).
+  const handleSetBattery = (level: number) =>
+    sendCommand({ action: 'set_battery', level });
+  const handleSetSpeed = (multiplier: number) =>
+    sendCommand({ action: 'set_speed', multiplier });
 
   return (
     <>
@@ -209,6 +223,42 @@ const DashboardSidebar: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+      {/* Panneau de développement : tests batterie / vitesse */}
+      <Card>
+        <CardContent>
+          <Typography variant="subtitle2" gutterBottom>
+            Développement (tests)
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+            Batterie
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+            <Button size="small" variant="outlined" color="warning" onClick={() => handleSetBattery(15)}>
+              ⚡ 15 %
+            </Button>
+            <Button size="small" variant="outlined" color="success" onClick={() => handleSetBattery(100)}>
+              🔋 100 %
+            </Button>
+          </Stack>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+            Vitesse de simulation
+          </Typography>
+          <Stack direction="row" spacing={1}>
+            <Button size="small" variant="outlined" onClick={() => handleSetSpeed(0.5)}>
+              🐢 x0,5
+            </Button>
+            <Button size="small" variant="outlined" onClick={() => handleSetSpeed(1)}>
+              ▶ x1
+            </Button>
+            <Button size="small" variant="outlined" onClick={() => handleSetSpeed(2)}>
+              ⏩ x2
+            </Button>
+            <Button size="small" variant="outlined" onClick={() => handleSetSpeed(4)}>
+              ⏭ x4
+            </Button>
+          </Stack>
+        </CardContent>
+      </Card>
     </>
   );
 };
