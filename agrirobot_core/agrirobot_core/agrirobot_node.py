@@ -237,8 +237,7 @@ class AgriRobotNode(Node):
         n = len(self.graph_nodes)
         adj = [[] for _ in range(n)]
         for a, b in self.graph_edges:
-            w = math.hyp
-ot(self.graph_nodes[a][0] - self.graph_nodes[b][0],
+            w = math.hypot(self.graph_nodes[a][0] - self.graph_nodes[b][0],
                            self.graph_nodes[a][1] - self.graph_nodes[b][1])
             adj[a].append((b, w))
             adj[b].append((a, w))
@@ -291,8 +290,7 @@ ot(self.graph_nodes[a][0] - self.graph_nodes[b][0],
                     self.finish_charging()
         self.publish_position()
         self.publish_status()
-        if self.tasks
-:
+        if self.tasks:
             self.publish_tasks_list()
             self.publish_mission_path()
         if self._ticks % 20 == 0:
@@ -337,8 +335,7 @@ ot(self.graph_nodes[a][0] - self.graph_nodes[b][0],
                     timezone.utc).isoformat()
                 self.current_task_idx += 1
                 if self.current_task_idx >= len(self.tasks):
-                    self.start_fin
-al_return()
+                    self.start_final_return()
                 else:
                     self.task_phase = 'transit'
                     self.current_wp_idx = 0
@@ -406,8 +403,7 @@ al_return()
                 self.current_wp_idx = task.get('completed_waypoints', 0)
             self.activity = 'work'
             self.robot_status = 'working'
-            self.get_logger().info('Mission repr
-ise après recharge')
+            self.get_logger().info('Mission reprise après recharge')
         elif self.activity == 'final_return':
             self.activity = 'charging'
             self.robot_status = 'charging'
@@ -461,8 +457,7 @@ ise après recharge')
             self.route_idx = 0
             self.activity = 'final_return'
         elif self.station_m:
-            self.rout
-e = self.route_to(self.station_m)
+            self.route = self.route_to(self.station_m)
             self.route_idx = 0
             self.activity = 'final_return'
         else:
@@ -516,8 +511,7 @@ e = self.route_to(self.station_m)
             'totalSteps': total,
             'currentStep': done,
             'progress': round(done / total * 100.0, 1) if total else 0.0,
-            'waypoints': ([meters
-_to_latlng(x, y) for (x, y) in t['waypoints']]
+            'waypoints': ([meters_to_latlng(x, y) for (x, y) in t['waypoints']]
                           if t.get('waypoints') else []),
             'lastExecutedAt': t.get('last_executed_at'),
         }
@@ -571,8 +565,7 @@ _to_latlng(x, y) for (x, y) in t['waypoints']]
                 previous = {t['id']: t for t in self.tasks}
                 self.tasks = []
                 for i, t in enumerate(command.get('tasks', [])):
-     
-               tid = t.get('id', f'task-{i}')
+                    tid = t.get('id', f'task-{i}')
                     if t.get('waypoints'):
                         wps = [latlng_to_meters(p) for p in t['waypoints']]
                     elif tid in previous and previous[tid].get('waypoints'):
@@ -607,8 +600,7 @@ _to_latlng(x, y) for (x, y) in t['waypoints']]
                                     for e in graph.get('edges', [])]
                 self.station_m = (latlng_to_meters(command['station'])
                                   if command.get('station') else None)
-                self.return_route_m = ([latlng_to_meters
-(p)
+                self.return_route_m = ([latlng_to_meters(p)
                                         for p in command.get('returnRoute', [])]
                                        if command.get('returnRoute') else [])
                 self.publish_tasks_list()
@@ -650,8 +642,7 @@ _to_latlng(x, y) for (x, y) in t['waypoints']]
 
             elif action == 'emergency_stop':
                 # Arret IMMEDIAT, securite d'abord : le robot stoppe sur
-                # pla
-ce et ses outils sont coupes / releves (simule).
+                # place et ses outils sont coupes / releves (simule).
                 self.paused = True
                 self.robot_status = 'stopped'
                 self.get_logger().warning(
@@ -696,8 +687,7 @@ ce et ses outils sont coupes / releves (simule).
 
             elif action == 'add_task':
                 task = command.get('task', {})
-             
-   wps = ([latlng_to_meters(p) for p in task['waypoints']]
+                wps = ([latlng_to_meters(p) for p in task['waypoints']]
                        if task.get('waypoints')
                        else self.generate_waypoints(len(self.tasks)))
                 self.tasks.append({
@@ -740,8 +730,7 @@ ce et ses outils sont coupes / releves (simule).
                 self.get_logger().info('Robot going to charging station')
 
             elif action == 'leave_charge':
-                self.robo
-t_status = 'leaving_charge'
+                self.robot_status = 'leaving_charge'
                 self.get_logger().info('Robot leaving charging station')
 
             elif action == 'return_to_charge':
