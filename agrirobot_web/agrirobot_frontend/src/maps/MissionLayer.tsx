@@ -28,7 +28,10 @@ const numberIcon = (n: number, color: string) =>
  * - tronçon effectué : trait plein coloré selon le statut
  * - tronçon restant : pointillés
  * - marqueurs numérotés au départ de chaque tâche
- * - liaisons pointillées entre tâches consécutives
+ * - PAS de liaison inter-tâches : les zones sont indépendantes, le
+ *   transit entre elles sera calculé par le planificateur via les
+ *   chemins de liaison (graphe 6.7) et apparaîtra dans les waypoints
+ *   de la mission — jamais une ligne droite arbitraire
  * - recadrage automatique quand la composition de la mission change
  */
 export const MissionLayer: React.FC = () => {
@@ -62,22 +65,12 @@ export const MissionLayer: React.FC = () => {
         // Tronçon restant (repart du dernier point atteint)
         const remainingPts = task.waypoints.slice(Math.max(done - 1, 0));
 
-        // Liaison avec la tâche précédente
-        const prev = mission.tasks[i - 1];
-        const link =
-          i > 0 && prev.waypoints.length > 0 && total > 0
-            ? [prev.waypoints[prev.waypoints.length - 1], task.waypoints[0]]
-            : null;
+        // Pas de liaison visuelle avec la tâche précédente : une ligne
+        // droite entre les zones serait trompeuse (le robot empruntera
+        // les chemins de liaison, calculés par le planificateur).
 
         return (
           <React.Fragment key={task.id}>
-            {link && (
-              <Polyline
-                positions={link}
-                pathOptions={{ color: '#757575', weight: 2, dashArray: '2 10', opacity: 0.7 }}
-              />
-            )}
-
             {donePts.length >= 2 && (
               <Polyline
                 positions={donePts}
