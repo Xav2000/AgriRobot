@@ -60,7 +60,7 @@ export const isTaskDue = (t: Task, now: Date = new Date()): boolean => {
 export const scheduleBadge = (t: Task, now: Date = new Date()): string => {
   if (!t.schedule) return '';
   if (isCarryOver(t)) return 'reprise à faire';
-  if (isTaskDue(t, now)) return 'due';
+  if (isTaskDue(t, now)) return 'planifiée maintenant';
   const s = t.schedule;
   const days = [...s.daysOfWeek].sort((x, y) => x - y);
   if (days.length === 0) return 'planifiée';
