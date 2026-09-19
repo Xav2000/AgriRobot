@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, LayersControl } from 'react-leaflet';
 import L from 'leaflet';
 import ROSLIB from 'roslib';
 import { useRos } from '../hooks/useRos';
+import { MissionLayer } from './MissionLayer';
+import { ZonesLayer } from './ZonesLayer';
+import { WorklinesLayer } from './WorklinesLayer';
+import { GraphLayer } from './GraphLayer';
+import { StationLayer } from './StationLayer';
 import 'leaflet/dist/leaflet.css';
 
 // Fix pour les icônes Leaflet (nécessaire avec Webpack)
@@ -30,6 +35,15 @@ const ResizeFix: React.FC = () => {
   return null;
 };
 
+/**
+ * Zoom max 23 pour pouvoir inspecter des lignes de guidage à faible
+ * écartement. Au-delà du zoom natif des tuiles (19), Leaflet agrandit la
+ * dernière tuile disponible (maxNativeZoom) : le fond devient flou mais
+ * les tracés vectoriels (zones, lignes, parcours) restent nets.
+ * Deux fonds de carte : imagerie satellite Esri (défaut) et plan OSM.
+ * L'orthophoto IGN française (meilleure résolution) nécessite une clé
+ * API Géoportail — option à venir.
+ */
 const MapView: React.FC = () => {
   const { ros, connectionState } = useRos();
   const [robotPosition, setRobotPosition] = useState<[number, number] | null>(null);
@@ -61,13 +75,38 @@ const MapView: React.FC = () => {
     <MapContainer
       center={defaultPosition}
       zoom={18}
+      maxZoom={23}
       style={{ position: 'absolute', inset: 0 }}
     >
       <ResizeFix />
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-      />
+      <LayersControl position="topright">
+        <LayersControl.BaseLayer checked name="Satellite">
+          <TileLayer
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            attribution="Imagerie &copy; Esri, Maxar, Earthstar Geographics"
+            maxNativeZoom={19}
+            maxZoom={23}
+          />
+        </LayersControl.BaseLayer>
+        <LayersControl.BaseLayer name="Plan (OSM)">
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            maxNativeZoom={19}
+            maxZoom={23}
+          />
+        </LayersControl.BaseLayer>
+      </LayersControl>
+      {/* Zones (polygones) + édition des sommets */}
+      <ZonesLayer />
+      {/* Paramètres des lignes de guidage (mode worklines) */}
+      <WorklinesLayer />
+      {/* Jonctions automatiques du graphe de circulation (étape 6.7) */}
+      <GraphLayer />
+      {/* Station de recharge (étape 6.8) */}
+      <StationLayer />
+      {/* Parcours de la mission + progression des tâches */}
+      <MissionLayer />
       {robotPosition && (
         <Marker position={robotPosition}>
           <Popup>
