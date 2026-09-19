@@ -20,9 +20,11 @@ Commandes (/task/command, String JSON) :
 Refonte R4 : état persisté dans ~/.agrirobot/state.json.
 Trajets réels : le frontend pré-calcule transits et retour (Dijkstra
 sur le graphe des corridors) ; le nœud suit. En cas de batterie faible
-(<= 20 %), le nœud calcule LUI-MÊME son itinéraire de retour (Dijkstra
-sur le graphe reçu avec la mission), se recharge à la station puis
-reprend seul la mission à sa progression.
+(réserve DYNAMIQUE estimée sur la distance à la station), le nœud
+évacue la zone par le plus court chemin sûr (graphe de visibilité
+contournant les obstacles — géométrie fournie par le frontend),
+rejoint la station par les corridors, se recharge puis reprend seul
+la mission à sa progression.
 Vitesses : tonte 2 waypoints/s (double de l'ancien 1/s), transits
 1 waypoint/s (visible).
 """
@@ -53,6 +55,13 @@ RESUME_BATTERY = 90.0
 WORK_DRAIN = 0.25
 TRANSIT_DRAIN = 0.1
 CHARGE_RATE = 1.0
+
+# Réserve d'énergie dynamique : consommation estimée pour rentrer à la
+# station (évacuation zone + corridors), marge de sécurité incluse.
+TRANSIT_DRAIN_PER_METER = 0.2   # %/m en transit (simulation)
+SAFETY_MARGIN = 1.5
+MIN_RESERVE = 10.0
+MAX_RESERVE = 60.0
 
 # Activités du robot (machine à états)
 MOVING_ACTIVITIES = ('transit', 'work', 'to_station', 'resume',
@@ -111,6 +120,7 @@ class AgriRobotNode(Node):
         # Reprise automatique après recharge (batterie faible)
         self.resume_pending = False
         self.resume_task_phase = 'work'
+        self.resume_pos = None            # point d'interruption (mètres)
 
         # Réseau de circulation reçu avec la mission (mètres) :
         # sert aux retours d'urgence calculés par le nœud.
@@ -142,6 +152,7 @@ class AgriRobotNode(Node):
             'route_idx': self.route_idx,
             'resume_pending': self.resume_pending,
             'resume_task_phase': self.resume_task_phase,
+            'resume_pos': list(self.resume_pos) if self.resume_pos else None,
             'graph_nodes': [list(p) for p in self.graph_nodes],
             'graph_edges': [list(e) for e in self.graph_edges],
             'station_m': list(self.station_m) if self.station_m else None,
@@ -177,6 +188,8 @@ class AgriRobotNode(Node):
             self.route_idx = state.get('route_idx', 0)
             self.resume_pending = state.get('resume_pending', False)
             self.resume_task_phase = state.get('resume_task_phase', 'work')
+            rp = state.get('resume_pos')
+            self.resume_pos = tuple(rp) if rp else None
             self.graph_nodes = [tuple(p) for p in state.get('graph_nodes', [])]
             self.graph_edges = [tuple(e) for e in state.get('graph_edges', [])]
             sm = state.get('station_m')
@@ -268,6 +281,121 @@ class AgriRobotNode(Node):
         nodes.reverse()
         return [start] + nodes + [target]
 
+    def _zone_portal(self, task):
+        """Point d'entrée de la zone : avant-dernier point du transit
+        (dernier sommet de corridor — le transit se termine au premier
+        waypoint de travail, à l'intérieur de la zone)."""
+        tr = task.get('transit') or []
+        if len(tr) >= 2:
+            return tr[-2]
+        return None
+
+    def _route_length(self, route):
+        """Longueur totale (m) d'une route."""
+        total = 0.0
+        for i in range(1, len(route)):
+            total += math.hypot(route[i][0] - route[i - 1][0],
+                                route[i][1] - route[i - 1][1])
+        return total
+
+    def _seg_cross(self, p1, p2, p3, p4):
+        """Vrai si les segments [p1, p2] et [p3, p4] se croisent."""
+        def orient(a, b, c):
+            v = ((b[0] - a[0]) * (c[1] - a[1])
+                 - (b[1] - a[1]) * (c[0] - a[0]))
+            if abs(v) < 1e-12:
+                return 0
+            return 1 if v > 0 else -1
+        o1 = orient(p1, p2, p3)
+        o2 = orient(p1, p2, p4)
+        o3 = orient(p3, p4, p1)
+        o4 = orient(p3, p4, p2)
+        return o1 != o2 and o3 != o4
+
+    def _route_in_zone(self, task, start, goal):
+        """Plus court chemin SÛR dans la zone (graphe de visibilité) :
+        position, but et sommets du contour et des obstacles ; une
+        arête est valide si son segment ne traverse aucun anneau.
+        Renvoie None sans géométrie ou sans chemin (fallback)."""
+        geo = task.get('geometry') or {}
+        rings = []
+        boundary = geo.get('boundary') or []
+        if len(boundary) >= 3:
+            rings.append(boundary)
+        for ring in geo.get('obstacles') or []:
+            if len(ring) >= 3:
+                rings.append(ring)
+        if not rings:
+            return None
+        pts = [tuple(start), tuple(goal)]
+        for r in rings:
+            pts += [tuple(p) for p in r]
+        n = len(pts)
+
+        def blocked(i, j):
+            p, q = pts[i], pts[j]
+            if abs(p[0] - q[0]) < 1e-9 and abs(p[1] - q[1]) < 1e-9:
+                return True
+            for r in rings:
+                m = len(r)
+                for k in range(m):
+                    if self._seg_cross(p, q, r[k], r[(k + 1) % m]):
+                        return True
+            return False
+
+        adj = [[] for _ in range(n)]
+        for i in range(n):
+            for j in range(i + 1, n):
+                if blocked(i, j):
+                    continue
+                w = math.hypot(pts[i][0] - pts[j][0],
+                               pts[i][1] - pts[j][1])
+                adj[i].append((j, w))
+                adj[j].append((i, w))
+        dist = [float('inf')] * n
+        prev = [-1] * n
+        done = [False] * n
+        dist[0] = 0.0
+        for _ in range(n):
+            u, ud = -1, float('inf')
+            for i in range(n):
+                if not done[i] and dist[i] < ud:
+                    ud, u = dist[i], i
+            if u < 0 or u == 1:
+                break
+            done[u] = True
+            for v, w in adj[u]:
+                if dist[u] + w < dist[v]:
+                    dist[v] = dist[u] + w
+                    prev[v] = u
+        if not math.isfinite(dist[1]):
+            return None
+        path = []
+        v = 1
+        while v >= 0:
+            path.append(pts[v])
+            v = prev[v]
+        path.reverse()
+        return path
+
+    def battery_reserve(self, task):
+        """Réserve d'énergie dynamique (%) : consommation estimée pour
+        rentrer à la station depuis la position courante (évacuation
+        de la zone + corridors), marge de sécurité incluse. Grandes
+        parcelles ou station éloignée => retour anticipé."""
+        portal = self._zone_portal(task)
+        if portal is None or self.station_m is None:
+            return LOW_BATTERY
+        zr = self._route_in_zone(task, self.robot_pos, portal)
+        d_zone = (self._route_length(zr) if zr else
+                  math.hypot(self.robot_pos[0] - portal[0],
+                             self.robot_pos[1] - portal[1]) * 1.5)
+        d_corridor = self._route_length(
+            self.route_to(self.station_m, start=portal))
+        reserve = ((d_zone + d_corridor)
+                   * TRANSIT_DRAIN_PER_METER * SAFETY_MARGIN) + 3.0
+        return min(MAX_RESERVE, max(MIN_RESERVE, reserve))
+
     # ------------------------------------------------------------- simulation
 
     def tick(self):
@@ -321,7 +449,8 @@ class AgriRobotNode(Node):
                 task['status'] = 'running'
                 task['completed_waypoints'] = self.current_wp_idx
                 self.battery = max(5.0, self.battery - WORK_DRAIN)
-            if self.battery <= LOW_BATTERY:
+            if (self.battery <= MAX_RESERVE
+                    and self.battery <= self.battery_reserve(task)):
                 self.interrupt_for_charge()
         else:
             if self.task_phase == 'transit':
@@ -359,13 +488,20 @@ class AgriRobotNode(Node):
             task['status'] = 'pending'
         self.resume_pending = True
         self.resume_task_phase = self.task_phase
-        # Itinéraire d'évacuation SÛR : remonter en sens inverse le
-        # chemin déjà parcouru (transit d'entrée + waypoints faits —
-        # jamais à travers un obstacle), jusqu'à l'entrée de zone ;
-        # de là, Dijkstra sur les corridors jusqu'à la station.
-        back = list(reversed(self._task_path(task)))
-        if back and tuple(back[0]) == tuple(self.robot_pos):
-            back = back[1:]
+        self.resume_pos = self.robot_pos
+        # Itinéraire d'évacuation : plus court chemin SÛR vers le
+        # portail de la zone (graphe de visibilité contournant les
+        # obstacles), puis Dijkstra sur les corridors jusqu'à la
+        # station. Sans géométrie : backtrack du chemin parcouru.
+        portal = self._zone_portal(task)
+        zone_route = (self._route_in_zone(task, self.robot_pos, portal)
+                      if portal is not None else None)
+        if zone_route:
+            back = zone_route[1:]
+        else:
+            back = list(reversed(self._task_path(task)))
+            if back and tuple(back[0]) == tuple(self.robot_pos):
+                back = back[1:]
         if self.station_m:
             join = back[-1] if back else self.robot_pos
             rest = self.route_to(self.station_m, start=join)
@@ -420,18 +556,23 @@ class AgriRobotNode(Node):
                 and 0 <= self.current_task_idx < len(self.tasks)
                 and has_pending):
             task = self.tasks[self.current_task_idx]
-            path = self._task_path(task)
-            entry = (path[0] if path
+            portal = self._zone_portal(task)
+            # Reprise : corridor jusqu'au portail de la zone, puis plus
+            # court chemin SÛR (visibilité) jusqu'au point
+            # d'interruption. Fallback : rejeu du chemin d'origine.
+            if portal is not None and self.resume_pos:
+                zpath = self._route_in_zone(task, portal, self.resume_pos)
+            else:
+                zpath = None
+            if zpath is None:
+                zpath = self._task_path(task)
+            entry = (zpath[0] if zpath
                      else (task['waypoints'][0]
                            if task.get('waypoints') else self.station_m))
             if entry is not None:
-                # Reprise SÛRE : corridor jusqu'à l'entrée de zone
-                # (Dijkstra), puis rejeu en avant du chemin d'origine
-                # (transit + waypoints déjà faits) jusqu'au point
-                # d'interruption — jamais à travers un obstacle.
                 rest = self.route_to(entry,
                                      start=self.station_m or self.robot_pos)
-                self.route = (rest[:-1] + path) if path else rest
+                self.route = (rest[:-1] + zpath) if zpath else rest
                 self.route_idx = 0
                 self.activity = 'resume'
                 self.robot_status = 'leaving_charge'
@@ -562,6 +703,7 @@ class AgriRobotNode(Node):
                 self.route_idx = 0
                 self.resume_pending = False
                 self.resume_task_phase = 'work'
+                self.resume_pos = None
                 previous = {t['id']: t for t in self.tasks}
                 self.tasks = []
                 for i, t in enumerate(command.get('tasks', [])):
@@ -574,6 +716,13 @@ class AgriRobotNode(Node):
                         wps = self.generate_waypoints(i)
                     transit = ([latlng_to_meters(p) for p in t['transit']]
                                if t.get('transit') else [])
+                    geo = t.get('geometry') or {}
+                    geometry = ({
+                        'boundary': [latlng_to_meters(p)
+                                     for p in geo.get('boundary', [])],
+                        'obstacles': [[latlng_to_meters(p) for p in ring]
+                                      for ring in geo.get('obstacles', [])],
+                    } if geo.get('boundary') else None)
                     done = (previous[tid].get('completed_waypoints', 0)
                             if (command.get('keepProgress')
                                 and tid in previous) else 0)
@@ -589,6 +738,7 @@ class AgriRobotNode(Node):
                         'field': t.get('field'),
                         'waypoints': wps,
                         'transit': transit,
+                        'geometry': geometry,
                         'completed_waypoints': done,
                     })
                 # Réseau de circulation (retours d'urgence) + station +
@@ -669,6 +819,7 @@ class AgriRobotNode(Node):
                 self.current_wp_idx = 0
                 self.resume_pending = False
                 self.resume_task_phase = 'work'
+                self.resume_pos = None
                 self.paused = False
                 self.robot_status = 'returning_to_charge'
                 if self.return_route_m:

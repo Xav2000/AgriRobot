@@ -155,7 +155,7 @@ const PlanningSidebar: React.FC = () => {
     if (!ros || disabled || !station) return;
     let payload;
     try {
-      payload = buildMissionPayload(missionTasks, corridors, station);
+      payload = buildMissionPayload(missionTasks, corridors, station, zones);
     } catch (e) {
       setGenError(e instanceof Error ? e.message : String(e));
       return;
