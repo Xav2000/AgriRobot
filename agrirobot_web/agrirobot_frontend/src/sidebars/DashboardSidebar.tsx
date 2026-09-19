@@ -1,5 +1,8 @@
-import React from 'react';
-import { Card, CardContent, Typography, Stack, Button } from '@mui/material';
+import React, { useState } from 'react';
+import {
+  Card, CardContent, Typography, Stack, Button,
+  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
+} from '@mui/material';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import MapIcon from '@mui/icons-material/Map';
 import AltRouteIcon from '@mui/icons-material/AltRoute';
@@ -16,21 +19,36 @@ import { useUiMode } from '../context/UiModeContext';
  * Sidebar du mode Dashboard (l'état du robot est désormais dans la
  * RobotStatusBar flottante en haut de la carte) :
  * - Tâche en cours avec progression
- * - Boutons de contrôle (Démarrer / Arrêter)
+ * - Boutons de contrôle (Démarrer/Reprendre / Arrêt d'urgence puis
+ *   choix opérateur : pause ou annulation de la mission)
  * - Bouton "Planifier" visible UNIQUEMENT si le robot est inactif
  */
 const DashboardSidebar: React.FC = () => {
   const { ros, connectionState } = useRos();
-  const { hasRunningTask } = useTasks();
+  const { hasRunningTask, tasks } = useTasks();
   const { setMode } = useUiMode();
 
   const disabled = connectionState !== 'connected';
+
+  // Arrêt d'URGENCE : le robot stoppe IMMÉDIATEMENT sur place et coupe
+  // ses outils (lame, outil de travail du sol — simulé) : un arrêt
+  // manuel peut être un geste de sécurité, on n'attend pas la décision.
+  // Le choix pause / annulation est ensuite fait dans la fenêtre.
+  const [stopDialogOpen, setStopDialogOpen] = useState(false);
+
+  const handleEmergencyStop = () => {
+    handleTaskCommand('emergency_stop');
+    setStopDialogOpen(true);
+  };
 
   // Le robot est considéré comme inactif si :
   // - Pas de tâche en cours ET ROS connecté
   const robotInactive = !hasRunningTask && !disabled;
 
-  const handleTaskCommand = (action: 'start_all_tasks' | 'stop_all_tasks') => {
+  const handleTaskCommand = (
+    action: 'start_all_tasks' | 'stop_all_tasks' | 'emergency_stop'
+      | 'pause_mission' | 'cancel_mission'
+  ) => {
     if (!ros || disabled) return;
     const cmdPub = new ROSLIB.Topic({
       ros,
@@ -57,7 +75,7 @@ const DashboardSidebar: React.FC = () => {
                 variant="contained"
                 color="error"
                 startIcon={<StopIcon />}
-                onClick={() => handleTaskCommand('stop_all_tasks')}
+                onClick={handleEmergencyStop}
                 disabled={disabled}
                 fullWidth
               >
@@ -72,7 +90,9 @@ const DashboardSidebar: React.FC = () => {
                 disabled={disabled}
                 fullWidth
               >
-                Démarrer les tâches
+                {tasks.some(t => (t.currentStep ?? 0) > 0 && t.status !== 'completed')
+                  ? 'Reprendre les tâches'
+                  : 'Démarrer les tâches'}
               </Button>
             )}
           </Stack>
@@ -117,6 +137,36 @@ const DashboardSidebar: React.FC = () => {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Choix après arrêt d'urgence : pause (progression conservée,
+          reprise possible) ou annulation (mission supprimée, retour à la
+          station). Fermer la fenêtre revient à mettre en pause. */}
+      <Dialog
+        open={stopDialogOpen}
+        onClose={() => { setStopDialogOpen(false); handleTaskCommand('pause_mission'); }}
+      >
+        <DialogTitle>Mission interrompue</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Le robot est arrêté sur place et ses outils sont coupés.
+            Que veux-tu faire ?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            color="error"
+            onClick={() => { setStopDialogOpen(false); handleTaskCommand('cancel_mission'); }}
+          >
+            Annuler la mission
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => { setStopDialogOpen(false); handleTaskCommand('pause_mission'); }}
+          >
+            Mettre en pause
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 };

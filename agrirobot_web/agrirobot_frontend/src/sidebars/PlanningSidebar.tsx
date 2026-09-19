@@ -3,6 +3,7 @@ import {
   Card, CardContent, Typography, Button, Alert, Stack, Box, TextField,
   Select, MenuItem, IconButton, Chip, Paper, InputLabel, FormControl,
   Switch, FormControlLabel,
+  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
@@ -116,6 +117,12 @@ const PlanningSidebar: React.FC = () => {
   // Drag & drop natif HTML5
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
+  // Régénération par-dessus une mission partiellement exécutée :
+  // l'opérateur choisit de conserver la progression des tâches
+  // entamées ou de les reprendre de zéro.
+  const [progressDialogOpen, setProgressDialogOpen] = useState(false);
+  const [progressTasks, setProgressTasks] = useState<Task[]>([]);
+
   const handleDragStart = (index: number) => setDragIndex(index);
 
   const handleDragEnter = (index: number) => {
@@ -184,13 +191,29 @@ const PlanningSidebar: React.FC = () => {
 
   const generateMission = () => {
     if (!ros || disabled || queue.length === 0 || prereqWarnings.length > 0) return;
+    // Missions déjà partiellement exécutées : demander à l'opérateur si
+    // la progression des tâches entamées doit être conservée ou remise
+    // à zéro avant de remplacer la mission.
+    const started = queue.filter(
+      t => (t.currentStep ?? 0) > 0 && t.status !== 'completed');
+    if (started.length > 0) {
+      setProgressTasks(started);
+      setProgressDialogOpen(true);
+      return;
+    }
+    publishMission(false);
+  };
+
+  // Publie generate_mission avec (ou sans) conservation de la
+  // progression des tâches entamées, puis vide la file locale.
+  const publishMission = (keepProgress: boolean) => {
     const cmdPub = new ROSLIB.Topic({
       ros,
       name: '/task/command',
       messageType: 'std_msgs/String',
     });
     cmdPub.publish(new ROSLIB.Message({
-      data: JSON.stringify({ action: 'generate_mission', tasks: queue }),
+      data: JSON.stringify({ action: 'generate_mission', tasks: queue, keepProgress }),
     }));
     // File vidée localement : elle sera ré-importée depuis la file
     // pending du robot (/tasks/list) — les tâches envoyées restent
@@ -354,6 +377,27 @@ const PlanningSidebar: React.FC = () => {
             ))}
           </Box>
         )}
+
+        {/* Régénération par-dessus une mission partiellement exécutée :
+            l'opérateur choisit de conserver la progression des tâches
+            entamées ou de les reprendre de zéro. */}
+        <Dialog open={progressDialogOpen} onClose={() => setProgressDialogOpen(false)}>
+          <DialogTitle>Mission partiellement exécutée</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              {progressTasks.map(t => '« ' + t.name + ' » : ' + Math.round(t.progress ?? 0) + ' % effectué').join(', ')}.<br />
+              Générer une nouvelle mission remplace la mission actuelle — veux-tu conserver la progression de ces tâches ou les reprendre de zéro ?
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => { setProgressDialogOpen(false); publishMission(false); }}>
+              Reprendre de zéro
+            </Button>
+            <Button variant="contained" onClick={() => { setProgressDialogOpen(false); publishMission(true); }}>
+              Conserver la progression
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         {/* Actions */}
         <Stack spacing={1}>

@@ -10,9 +10,11 @@ Topics publiés :
   - /tasks/list     (String JSON : tâches + progression)
   - /mission/path   (String JSON : waypoints [lat,lng] + statut par tâche)
 Commandes (/task/command, String JSON) :
-  add_task (waypoints [lat,lng] optionnels), remove_task, generate_mission,
-  start_all_tasks, stop_all_tasks, start_task, stop_task, go_to_charge,
-  leave_charge, return_to_charge
+  add_task (waypoints [lat,lng] optionnels), remove_task, generate_mission
+  (keepProgress optionnel), start_all_tasks (reprise si entamee),
+  stop_all_tasks, emergency_stop (arret immediat + outils coupes),
+  pause_mission, cancel_mission (retour station), start_task, stop_task,
+  go_to_charge, leave_charge, return_to_charge
 """
 
 import rclpy
@@ -242,6 +244,12 @@ class AgriRobotNode(Node):
                         wps = previous[tid]['waypoints']
                     else:
                         wps = self.generate_waypoints(i)
+                    # Progression des taches entamees : conservee si
+                    # l'operateur le demande (keepProgress), remise a
+                    # zero sinon.
+                    done = (previous[tid].get('completed_waypoints', 0)
+                            if (command.get('keepProgress')
+                                and tid in previous) else 0)
                     self.tasks.append({
                         'id': tid,
                         'name': t.get('name', f'Tâche {i + 1}'),
@@ -249,7 +257,7 @@ class AgriRobotNode(Node):
                         'status': 'pending',
                         'field': t.get('field'),
                         'waypoints': wps,
-                        'completed_waypoints': 0,
+                        'completed_waypoints': done,
                     })
                 self.publish_tasks_list()
                 self.publish_mission_path()
@@ -262,9 +270,15 @@ class AgriRobotNode(Node):
                     return
                 self.executing = True
                 self.robot_status = 'working'
-                self.current_task_idx = 0
-                self.current_wp_idx = 0
-                self.get_logger().info('Mission démarrée')
+                # Reprise apres pause : saute les taches terminees et
+                # reprend la premiere tache entamee la ou elle s'etait
+                # arretee (waypoints deja atteints).
+                self.current_task_idx = next(
+                    (i for i, t in enumerate(self.tasks)
+                     if t.get('status') != 'completed'), 0)
+                first = self.tasks[self.current_task_idx]
+                self.current_wp_idx = first.get('completed_waypoints', 0)
+                self.get_logger().info('Mission démarrée (ou reprise)')
 
             elif action == 'stop_all_tasks':
                 self.executing = False
@@ -273,6 +287,39 @@ class AgriRobotNode(Node):
                     if t['status'] == 'running':
                         t['status'] = 'pending'
                 self.get_logger().info('Mission arrêtée')
+
+            elif action == 'emergency_stop':
+                # Arret IMMEDIAT, securite d'abord : le robot stoppe sur
+                # place et ses outils sont coupes / releves (simule : lame
+                # de tonte, outil de travail du sol). La decision pause ou
+                # annulation est prise ensuite par l'operateur via la
+                # fenetre contextuelle du frontend.
+                self.executing = False
+                self.robot_status = 'stopped'
+                self.get_logger().warning(
+                    'ARRET D URGENCE : robot stoppe, outils coupes')
+
+            elif action == 'pause_mission':
+                # Pause : progression conservee, reprise possible via
+                # start_all_tasks (qui reprend a completed_waypoints).
+                self.executing = False
+                self.robot_status = 'paused'
+                for t in self.tasks:
+                    if t['status'] == 'running':
+                        t['status'] = 'pending'
+                self.publish_tasks_list()
+                self.publish_mission_path()
+                self.get_logger().info('Mission en pause (progression conservée)')
+
+            elif action == 'cancel_mission':
+                # Annulation complete : mission supprimee, le robot
+                # rentre a la station de recharge (simule).
+                self.executing = False
+                self.tasks = []
+                self.robot_status = 'returning_to_charge'
+                self.publish_tasks_list()
+                self.publish_mission_path()
+                self.get_logger().info('Mission annulée : retour à la station')
 
             elif action == 'start_task':
                 self.robot_status = 'working'
