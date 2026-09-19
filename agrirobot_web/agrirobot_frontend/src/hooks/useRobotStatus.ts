@@ -5,11 +5,11 @@ import { useRos } from './useRos';
 export interface RobotStatus {
   status: string;
   battery: number;
-  position?: { x: number; y: number   weather?: { condition: 'sun' | 'rain'; source: 'service' | 'override' | 'unknown' };
-};
+  position?: { x: number; y: number };
+  weather?: { condition: 'sun' | 'rain'; source: 'service' | 'override' | 'unknown' };
 }
 
-/** Écoute /robot/status et expose l'état courant du robot. */
+/** Ecoute /robot/status et expose l'etat courant du robot. */
 export function useRobotStatus(): { robotStatus: RobotStatus | null } {
   const { ros, connectionState } = useRos();
   const [robotStatus, setRobotStatus] = useState<RobotStatus | null>(null);
