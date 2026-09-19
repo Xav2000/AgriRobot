@@ -4,6 +4,8 @@ import {
 } from '@mui/material';
 import BatteryFullIcon from '@mui/icons-material/BatteryFull';
 import BatteryAlertIcon from '@mui/icons-material/BatteryAlert';
+import WbSunnyIcon from '@mui/icons-material/WbSunny';
+import UmbrellaIcon from '@mui/icons-material/Umbrella';
 import ROSLIB from 'roslib';
 import { useRos } from '../hooks/useRos';
 import { useRobotStatus } from '../hooks/useRobotStatus';
@@ -34,18 +36,19 @@ export const RobotStatusBar: React.FC = () => {
   const connected = connectionState === 'connected';
   const showActions = connected && !hasRunningTask;
 
-  const sendCommand = (action: string) => {
+  const sendCommand = (action: string, extra?: Record<string, unknown>) => {
     if (!ros || !connected) return;
     const cmdPub = new ROSLIB.Topic({
       ros,
       name: '/task/command',
       messageType: 'std_msgs/String',
     });
-    cmdPub.publish(new ROSLIB.Message({ data: JSON.stringify({ action }) }));
+    cmdPub.publish(new ROSLIB.Message({ data: JSON.stringify({ action, ...extra }) }));
   };
 
   const statusInfo = robotStatus
-    ? STATUS_INFO[robotStatus.status] ?? { color: 'default' as const, label: 'Inactif' }
+    ? STATUS_INFO[robotStatus.status] ?? { color: 'default'
+ as const, label: 'Inactif' }
     : { color: 'default' as const, label: 'Inconnu' };
 
   const battery = robotStatus?.battery ?? 0;
@@ -88,6 +91,20 @@ export const RobotStatusBar: React.FC = () => {
             </Box>
 
             <Chip color={statusInfo.color} label={statusInfo.label} size="small" />
+
+            {/* Météo (6.10a) : clic = forçage dev beau temps / pluie */}
+            {robotStatus?.weather && (
+              <Chip
+                size="small"
+                icon={robotStatus.weather.condition === 'rain'
+                  ? <UmbrellaIcon /> : <WbSunnyIcon />}
+                color={robotStatus.weather.condition === 'rain' ? 'info' : 'default'}
+                label={(robotStatus.weather.condition === 'rain' ? 'Pluie' : 'Beau temps')
+                  + (robotStatus.weather.source === 'override' ? ' (forcé)' : '')}
+                onClick={() => sendCommand('set_weather_override', { toggle: true })}
+                sx={{ cursor: 'pointer' }}
+              />
+            )}
 
             {showActions && (
               <>

@@ -42,6 +42,7 @@ from geometry_msgs.msg import PoseStamped
 
 from .geo import *
 from .navigation import NavigationMixin
+from .weather import WeatherMonitor
 
 
 class AgriRobotNode(NavigationMixin, Node):
@@ -51,7 +52,8 @@ class AgriRobotNode(NavigationMixin, Node):
     def save_state(self):
         """Écrit l'état complet dans state.json (atomique)."""
         state = {
-            'savedAt': datetime.now(timezone.utc).isoformat(),
+            'sav
+edAt': datetime.now(timezone.utc).isoformat(),
             'robot_status': self.robot_status,
             'battery': self.battery,
             'robot_pos': list(self.robot_pos),
@@ -93,7 +95,8 @@ class AgriRobotNode(NavigationMixin, Node):
             self.battery = state.get('battery', 100.0)
             pos = state.get('robot_pos', [0.0, 0.0])
             self.robot_pos = (pos[0], pos[1])
-            self.current_task_idx = state.get('current_task_idx', 0)
+            self.
+current_task_idx = state.get('current_task_idx', 0)
             self.task_phase = state.get('task_phase', 'transit')
             self.current_wp_idx = state.get('current_wp_idx', 0)
             self.route = [tuple(p) for p in state.get('route', [])]
@@ -126,7 +129,8 @@ class AgriRobotNode(NavigationMixin, Node):
                     in_range = 0 <= self.current_task_idx < len(self.tasks)
                     if not (self.resume_pending and has_pending and in_range):
                         # Charge orpheline (mission terminée ou état
-                        # corrompu par un crash) : retour au repos.
+                        # corrompu par un crash) : retour au repo
+s.
                         self.activity = None
                         self.robot_status = 'idle'
             self.get_logger().info(
@@ -173,7 +177,8 @@ class AgriRobotNode(NavigationMixin, Node):
         if self.task_phase == 'transit':
             wps = task.get('transit') or []
             if not wps:
-                # Pas de transit calculé (tâche manuelle) : direct au travail
+                # Pas de transit calculé (tâche manuell
+e) : direct au travail
                 self.task_phase = 'work'
                 self.current_wp_idx = task.get('completed_waypoints', 0)
                 return
@@ -219,7 +224,8 @@ class AgriRobotNode(NavigationMixin, Node):
             self.route_idx += 1
             self.battery = max(5.0, self.battery - TRANSIT_DRAIN)
             return
-        # Arrivée
+     
+   # Arrivée
         if self.activity == 'to_station':
             self.activity = 'charging'
             self.robot_status = 'charging'
@@ -260,7 +266,8 @@ class AgriRobotNode(NavigationMixin, Node):
             if portal is not None and self.resume_pos:
                 zpath = self._route_in_zone(task, portal, self.resume_pos)
             else:
-                zpath = None
+                zpat
+h = None
             if zpath is None:
                 zpath = self._task_path(task)
             entry = (zpath[0] if zpath
@@ -309,7 +316,8 @@ class AgriRobotNode(NavigationMixin, Node):
         ox, oy = index * 40.0, index * 25.0
         wps = []
         for lane in range(3):
-            y = oy + lane * 10.0
+      
+      y = oy + lane * 10.0
             if lane % 2 == 0:
                 wps += [(ox, y), (ox + 30.0, y)]
             else:
@@ -334,6 +342,7 @@ class AgriRobotNode(NavigationMixin, Node):
             'status': self.robot_status,
             'battery': round(self.battery, 1),
             'position': {'x': self.robot_pos[0], 'y': self.robot_pos[1]},
+            'weather': self.weather.snapshot(),
         })
         self.robot_status_pub.publish(msg)
 
@@ -366,7 +375,8 @@ class AgriRobotNode(NavigationMixin, Node):
         msg.data = json.dumps({
             'tasks': [
                 {
-                    'id': t['id'],
+               
+     'id': t['id'],
                     'name': t['name'],
                     'status': t['status'],
                     'waypoints': [meters_to_latlng(x, y) for (x, y) in t['waypoints']],
@@ -413,7 +423,8 @@ class AgriRobotNode(NavigationMixin, Node):
                         wps = previous[tid]['waypoints']
                     else:
                         wps = self.generate_waypoints(i)
-                    transit = ([latlng_to_meters(p) for p in t['transit']]
+                    tra
+nsit = ([latlng_to_meters(p) for p in t['transit']]
                                if t.get('transit') else [])
                     geo = t.get('geometry') or {}
                     geometry = ({
@@ -449,7 +460,8 @@ class AgriRobotNode(NavigationMixin, Node):
                 graph = command.get('graph') or {}
                 self.graph_nodes = [latlng_to_meters(p)
                                     for p in graph.get('nodes', [])]
-                self.graph_edges = [tuple(e)
+              
+  self.graph_edges = [tuple(e)
                                     for e in graph.get('edges', [])]
                 self.station_m = (latlng_to_meters(command['station'])
                                   if command.get('station') else None)
@@ -488,7 +500,8 @@ class AgriRobotNode(NavigationMixin, Node):
             elif action == 'stop_all_tasks':
                 self.paused = True
                 self.robot_status = 'idle'
-                for t in self.tasks:
+                for t in self.task
+s:
                     if t['status'] == 'running':
                         t['status'] = 'pending'
                 self.get_logger().info('Mission arrêtée')
@@ -531,7 +544,8 @@ class AgriRobotNode(NavigationMixin, Node):
                 # tâche et téléporterait le robot s'il annule avant.
                 if self.station_m:
                     self.route = self.route_to(self.station_m,
-                                               start=self.robot_pos)
+                      
+                         start=self.robot_pos)
                     self.route_idx = 0
                     self.activity = 'final_return'
                 else:
@@ -573,7 +587,8 @@ class AgriRobotNode(NavigationMixin, Node):
                     self.get_logger().warning(f'No pending task to remove: {tid}')
 
             elif action == 'start_task':
-                self.robot_status = 'working'
+                self.ro
+bot_status = 'working'
                 self.get_logger().info('Started task')
 
             elif action == 'stop_task':
@@ -617,7 +632,8 @@ class AgriRobotNode(NavigationMixin, Node):
                 # Outil de test : multiplicateur de vitesse de
                 # simulation (recrée le timer de tick).
                 mult = max(0.25, min(4.0,
-                                     float(command.get('multiplier', 1.0))))
+                      
+               float(command.get('multiplier', 1.0))))
                 self.speed_multiplier = mult
                 self.timer.cancel()
                 self.timer = self.create_timer(0.5 / mult, self.tick)
@@ -625,6 +641,13 @@ class AgriRobotNode(NavigationMixin, Node):
                     f'Vitesse de simulation x{mult} (tick '
                     f'toutes les {0.5 / mult:.2f} s)')
 
+            elif action == 'set_weather_override':
+                # Dev : forcage manuel de la meteo ('sun'/'rain'/null),
+                # ou bascule automatique avec toggle=true.
+                if command.get('toggle'):
+                    self.weather.toggle()
+                else:
+                    self.weather.set_override(command.get('condition'))
             elif action == 'go_to_charge':
                 self.robot_status = 'going_to_charge'
                 self.get_logger().info('Robot going to charging station')
@@ -647,9 +670,16 @@ class AgriRobotNode(NavigationMixin, Node):
 def main(args=None):
     rclpy.init(args=args)
     node = AgriRobotNode()
-    rclpy.spin(node)
-    node.save_state()
-    node.destroy_node()
+    # Meteo (etape 6.10a) : poll Open-Meteo en tache de fond +
+    # override de dev via set_weather_override. Non persiste.
+    node.weather = WeatherMonitor()
+    node.weather.start()
+    try:
+        rclpy.spin(node)
+    finally:
+        node.weather.stop()
+        node.save_state()
+        node.destroy_node()
     rclpy.shutdown()
 
 

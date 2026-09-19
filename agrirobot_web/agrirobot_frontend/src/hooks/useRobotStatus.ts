@@ -5,7 +5,8 @@ import { useRos } from './useRos';
 export interface RobotStatus {
   status: string;
   battery: number;
-  position?: { x: number; y: number };
+  position?: { x: number; y: number   weather?: { condition: 'sun' | 'rain'; source: 'service' | 'override' | 'unknown' };
+};
 }
 
 /** Écoute /robot/status et expose l'état courant du robot. */
