@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AppBar, Toolbar, Typography, Box, Stack, IconButton, Chip } from '@mui/material';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
@@ -19,12 +19,17 @@ import { ZonesProvider } from './context/ZonesContext';
 import { WorklinesProvider } from './context/WorklinesContext';
 import { StationProvider } from './context/StationContext';
 import { PlanProvider } from './context/PlanContext';
+import { loadSlice, saveSlice } from './lib/storage';
 
 /**
  * Les sidebars restent montées (état préservé, notamment la file
  * de tâches du mode planning quand on part éditer les zones) ; seule celle du
  * mode actif est affichée. La carte reste elle aussi montée en permanence.
  */
+const SIDEBAR_DEFAULT = 340;
+const SIDEBAR_MIN = 280;
+const SIDEBAR_MAX = 640;
+
 const SidebarSwitcher: React.FC = () => {
   const { mode } = useUiMode();
 
@@ -83,6 +88,33 @@ function App() {
   const { connectionState } = useRos();
   const { mode, toggleColorMode } = useColorMode();
 
+  // Largeur de la sidebar, réglable à la souris via la poignée du bord
+  // droit (double-clic : retour à la largeur par défaut). Persistée.
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const v = loadSlice<number>('sidebarWidth', SIDEBAR_DEFAULT);
+    const n = typeof v === 'number' && !Number.isNaN(v) ? v : SIDEBAR_DEFAULT;
+    return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, n));
+  });
+  useEffect(() => { saveSlice('sidebarWidth', sidebarWidth); }, [sidebarWidth]);
+
+  const resizingRef = useRef(false);
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    resizingRef.current = true;
+    document.body.style.userSelect = 'none';
+  };
+  const doResize = (e: React.PointerEvent) => {
+    if (!resizingRef.current) return;
+    const w = Math.round(e.clientX - 16); // padding de page
+    setSidebarWidth(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, w)));
+  };
+  const endResize = (e: React.PointerEvent) => {
+    resizingRef.current = false;
+    document.body.style.userSelect = '';
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* déjà libéré */ }
+  };
+
   const statusText =
     connectionState === 'connected' ? 'Connecté'
     : connectionState === 'connecting' ? 'Connexion…'
@@ -110,7 +142,7 @@ function App() {
                 */}
                 <Box sx={{
                   position: { xs: 'static', md: 'absolute' },
-                  left: { md: 372 },
+                  left: { md: sidebarWidth + 32 },
                   top: { md: 0 },
                   bottom: { md: 0 },
                   display: 'flex',
@@ -135,15 +167,40 @@ function App() {
               minHeight: 0,
               overflow: 'hidden',
             }}>
-              {/* Sidebar contextuelle — largeur fixe, contenu selon le mode */}
-              <Stack sx={{
-                width: { xs: '100%', md: 340 },
+              {/* Sidebar contextuelle — largeur réglable via la poignée,
+                  contenu selon le mode */}
+              <Box sx={{
+                position: 'relative',
                 flexShrink: 0,
-                gap: 2,
-                overflow: 'auto',
+                width: { xs: '100%', md: sidebarWidth },
               }}>
-                <SidebarSwitcher />
-              </Stack>
+                <Stack sx={{
+                  width: '100%',
+                  height: '100%',
+                  gap: 2,
+                  overflow: 'auto',
+                }}>
+                  <SidebarSwitcher />
+                </Stack>
+                <Box
+                  onPointerDown={startResize}
+                  onPointerMove={doResize}
+                  onPointerUp={endResize}
+                  onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT)}
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    right: -4,
+                    width: 8,
+                    cursor: 'col-resize',
+                    zIndex: 10,
+                    touchAction: 'none',
+                    borderRadius: 1,
+                    '&:hover, &:active': { bgcolor: 'action.selected' },
+                  }}
+                />
+              </Box>
               {/* Carte — occupe tout l'espace restant, jamais démontée */}
               <Box sx={{
                 flex: 1,

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Card, CardContent, Typography, Button, Alert, Stack, Box, TextField,
-  Select, MenuItem, IconButton, Chip, Paper, InputLabel, FormControl,
+  IconButton, Chip, Paper,
   Switch, FormControlLabel, Divider,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
   ToggleButton, ToggleButtonGroup,
@@ -55,7 +55,7 @@ const formatLastRun = (iso?: string): string => {
  * Sidebar du mode planification : gestion de la file de tâches.
  * Refonte R3 : la file vit DANS le frontend (PlanContext, persistée) —
  * c'est la source de vérité de la mission à venir.
- * - Ajout (nom, type, zone), suppression, réordonnancement par drag & drop
+ * - Suppression, réordonnancement par drag & drop
  * - Activation/désactivation individuelle (décision purement locale :
  *   la mission n'embarque que les tâches actives)
  * - Le robot ne fait que RAPPORTER l'état d'exécution (/tasks/list) :
@@ -77,7 +77,7 @@ const PlanningSidebar: React.FC = () => {
   const { station, importStation } = useStation();
   const { validated, zoneEntryPoints, importState } = useWorklines();
   const {
-    queue, addTask: addTaskToPlan, removeTask, setTaskEnabled,
+    queue,  removeTask, setTaskEnabled,
     moveTask, mergeRobotState, replaceQueue, setTaskSchedule,
   } = usePlan();
 
@@ -87,11 +87,6 @@ const PlanningSidebar: React.FC = () => {
   // (progression, statut, dernière exécution) dans la file locale,
   // sans jamais toucher à l'ordre ni au drapeau actif.
   useEffect(() => { mergeRobotState(tasks); }, [tasks, mergeRobotState]);
-
-  // Formulaire d'ajout
-  const [newName, setNewName] = useState('');
-  const [newType, setNewType] = useState<Task['type']>('mowing');
-  const [newField, setNewField] = useState('');
 
   // Drag & drop natif HTML5
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -122,17 +117,6 @@ const PlanningSidebar: React.FC = () => {
   };
 
   const handleDragEnd = () => setDragIndex(null);
-
-  const addTask = () => {
-    if (!newName.trim()) return;
-    addTaskToPlan({
-      name: newName.trim(),
-      type: newType,
-      field: newField.trim() || undefined,
-    });
-    setNewName('');
-    setNewField('');
-  };
 
   // Etape 6.9 : bascule d'activation — décision LOCALE (la mission
   // n'embarque que les tâches actives ; plus de set_task_enabled).
@@ -323,44 +307,6 @@ const PlanningSidebar: React.FC = () => {
             ROS 2 non connecté — la génération du parcours sera impossible
           </Alert>
         )}
-
-        {/* Formulaire d'ajout */}
-        <Stack spacing={1} sx={{ mb: 3 }}>
-          <TextField
-            size="small"
-            label="Nom de la tâche"
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addTask()}
-          />
-          <FormControl size="small">
-            <InputLabel>Type</InputLabel>
-            <Select
-              value={newType}
-              label="Type"
-              onChange={e => setNewType(e.target.value as Task['type'])}
-            >
-              {(Object.keys(TYPE_LABELS) as Task['type'][]).map(t => (
-                <MenuItem key={t} value={t}>{TYPE_LABELS[t]}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <TextField
-            size="small"
-            label="Zone / champ (optionnel)"
-            value={newField}
-            onChange={e => setNewField(e.target.value)}
-          />
-          <Button
-            variant="contained"
-            color="success"
-            startIcon={<AddIcon />}
-            onClick={addTask}
-            disabled={!newName.trim()}
-          >
-            Ajouter à la file
-          </Button>
-        </Stack>
 
         {/* File de tâches ordonnée */}
         <Typography variant="subtitle2" gutterBottom>
