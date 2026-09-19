@@ -18,6 +18,8 @@ import { useRos } from '../hooks/useRos';
 import { useUiMode } from '../context/UiModeContext';
 import { useZones } from '../context/ZonesContext';
 import { corridorWarnings } from '../lib/corridors';
+import { distanceToNetwork } from '../lib/graph';
+import { useStation } from '../context/StationContext';
 
 const TYPE_LABELS: Record<Task['type'], string> = {
   mowing: 'Tonte',
@@ -59,6 +61,7 @@ const PlanningSidebar: React.FC = () => {
   const { tasks } = useTasks();
   const { setMode, goBack } = useUiMode();
   const { zones, corridors } = useZones();
+  const { station } = useStation();
 
   const disabled = connectionState !== 'connected';
 
@@ -90,8 +93,17 @@ const PlanningSidebar: React.FC = () => {
       const keptIds = new Set(kept.map(t => t.id));
       const fresh = pending.filter(t => !keptIds.has(t.id));
       // Met à jour les tâches robot (progression, enabled, dates) sans
-      // toucher à l'ordre ni aux tâches locales.
-      const refreshed = kept.map(t => t.id.startsWith('local-') ? t : (pendingById.get(t.id) ?? t));
+      // toucher à l'ordre ni aux tâches locales. Le drapeau enabled est
+      // conservé depuis la file locale tant que le robot ne renvoie pas
+      // EXPLICITEMENT ce champ : sinon une bascule locale (le robot ne
+      // connaît pas encore set_task_enabled) serait écrasée au prochain
+      // /tasks/list et le Switch se rallumerait aussitôt.
+      const refreshed = kept.map(t => {
+        if (t.id.startsWith('local-')) return t;
+        const rt = pendingById.get(t.id);
+        if (!rt) return t;
+        return { ...rt, enabled: rt.enabled !== undefined ? rt.enabled : t.enabled };
+      });
       return fresh.length > 0 ? [...refreshed, ...fresh] : refreshed;
     });
   }, [tasks]);
@@ -171,7 +183,7 @@ const PlanningSidebar: React.FC = () => {
   };
 
   const generateMission = () => {
-    if (!ros || disabled || queue.length === 0) return;
+    if (!ros || disabled || queue.length === 0 || prereqWarnings.length > 0) return;
     const cmdPub = new ROSLIB.Topic({
       ros,
       name: '/task/command',
@@ -189,6 +201,27 @@ const PlanningSidebar: React.FC = () => {
 
   // Nombre de tâches désactivées dans la file (etape 6.9)
   const disabledCount = queue.filter(t => t.enabled === false).length;
+
+  // Prérequis de mission : le robot doit pouvoir REJOINDRE les zones
+  // depuis la station via les chemins de liaison. Sans station ni
+  // réseau raccordé, la génération (et l'exécution) est impossible.
+  const prereqWarnings: string[] = [];
+  if (!station) {
+    prereqWarnings.push('aucune station de recharge — pose-la dans le mode « Chemins de liaison »');
+  } else if (corridors.length === 0) {
+    prereqWarnings.push('aucun chemin de liaison — le robot ne pourrait pas rejoindre les zones');
+  } else {
+    if (distanceToNetwork(corridors, station.position) > 1) {
+      prereqWarnings.push('la station est isolée (à plus de 1 m des chemins de liaison)');
+    }
+    // Point d'entrée de chaque tâche à waypoints : raccordé au réseau
+    for (const t of queue) {
+      if (!t.waypoints || t.waypoints.length === 0) continue;
+      if (distanceToNetwork(corridors, t.waypoints[0]) > 1) {
+        prereqWarnings.push('« ' + t.name + ' » : point d\u2019entrée non raccordé aux chemins de liaison');
+      }
+    }
+  }
 
   // Conformité des chemins de liaison (avertissement, pas blocage)
   const invalidCorridorCount = corridors.filter(
@@ -324,6 +357,11 @@ const PlanningSidebar: React.FC = () => {
 
         {/* Actions */}
         <Stack spacing={1}>
+          {prereqWarnings.length > 0 && (
+            <Alert severity="error">
+              Génération impossible : {prereqWarnings.join(' ; ')}.
+            </Alert>
+          )}
           {invalidCorridorCount > 0 && (
             <Alert severity="warning">
               {invalidCorridorCount} chemin{invalidCorridorCount > 1 ? 's' : ''} de liaison
@@ -337,7 +375,7 @@ const PlanningSidebar: React.FC = () => {
             size="large"
             startIcon={<RouteIcon />}
             onClick={generateMission}
-            disabled={disabled || queue.length === 0}
+            disabled={disabled || queue.length === 0 || prereqWarnings.length > 0}
             fullWidth
           >
             Générer le parcours{queue.length > 0 ? ' (' + queue.length + ' tâche' + (queue.length > 1 ? 's' : '') + ')' : ''}
