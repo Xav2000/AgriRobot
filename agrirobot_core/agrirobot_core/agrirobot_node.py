@@ -151,6 +151,11 @@ class AgriRobotNode(Node):
             'totalSteps': total,
             'currentStep': done,
             'progress': round(done / total * 100.0, 1) if total else 0.0,
+            # Waypoints [lat, lng] (etape 6.9) : le planificateur frontend
+            # verifie que le point d'entree de chaque tache est raccorde
+            # au reseau de chemins de liaison avant de generer la mission.
+            'waypoints': ([meters_to_latlng(x, y) for (x, y) in t['waypoints']]
+                          if t.get('waypoints') else []),
         }
 
     def publish_tasks_list(self):
