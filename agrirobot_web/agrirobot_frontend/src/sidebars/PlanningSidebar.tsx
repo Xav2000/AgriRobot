@@ -207,6 +207,7 @@ const PlanningSidebar: React.FC = () => {
   // Publie generate_mission avec (ou sans) conservation de la
   // progression des tâches entamées, puis vide la file locale.
   const publishMission = (keepProgress: boolean) => {
+    if (!ros || disabled) return;
     const cmdPub = new ROSLIB.Topic({
       ros,
       name: '/task/command',
