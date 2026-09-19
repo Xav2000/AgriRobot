@@ -26,6 +26,7 @@ import { useStation, Station } from '../context/StationContext';
 import { useWorklines, ValidatedCourse, ZoneEntryPoints } from '../context/WorklinesContext';
 import { usePlan } from '../context/PlanContext';
 import { buildProjectDocument, parseProjectDocument } from '../lib/storage';
+import { buildMissionPayload } from '../lib/mission';
 
 const TYPE_LABELS: Record<Task['type'], string> = {
   mowing: 'Tonte',
@@ -59,8 +60,9 @@ const formatLastRun = (iso?: string): string => {
  *   file sans toucher à l'ordre ni au drapeau actif
  * - Contrôle de conformité des chemins de liaison avant génération
  * - « Générer le parcours » publie generate_mission avec les tâches
- *   actives ordonnées, puis ramène au dashboard ; la file reste
- *   visible et éditable
+ *   actives ordonnées ET les trajets pré-calculés (transits sur les
+ *   chemins de liaison + retour station, Dijkstra — lib/mission.ts),
+ *   puis ramène au dashboard ; la file reste visible et éditable
  * - Sauvegarde du projet (refonte R1) : export/import d'un document
  *   JSON complet (zones, chemins, station, parcours, file)
  */
@@ -96,6 +98,9 @@ const PlanningSidebar: React.FC = () => {
   // entamées ou de les reprendre de zéro.
   const [progressDialogOpen, setProgressDialogOpen] = useState(false);
   const [progressTasks, setProgressTasks] = useState<Task[]>([]);
+
+  // Erreur de construction de la mission (zone non reliée…)
+  const [genError, setGenError] = useState<string | null>(null);
 
   const handleDragStart = (index: number) => setDragIndex(index);
 
@@ -142,16 +147,34 @@ const PlanningSidebar: React.FC = () => {
 
   // Publie generate_mission avec les tâches ACTIVES de la file, dans
   // l'ordre choisi (ou sans) conservation de la progression des tâches
-  // entamées. La file locale reste intacte : source de vérité.
+  // entamées. Les trajets (transits sur les chemins de liaison, retour
+  // station) sont pré-calculés ici par Dijkstra — le robot suit des
+  // waypoints ; le graphe est joint pour ses retours d'urgence.
+  // La file locale reste intacte : source de vérité.
   const publishMission = (keepProgress: boolean) => {
-    if (!ros || disabled) return;
+    if (!ros || disabled || !station) return;
+    let payload;
+    try {
+      payload = buildMissionPayload(missionTasks, corridors, station);
+    } catch (e) {
+      setGenError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    setGenError(null);
     const cmdPub = new ROSLIB.Topic({
       ros,
       name: '/task/command',
       messageType: 'std_msgs/String',
     });
     cmdPub.publish(new ROSLIB.Message({
-      data: JSON.stringify({ action: 'generate_mission', tasks: missionTasks, keepProgress }),
+      data: JSON.stringify({
+        action: 'generate_mission',
+        tasks: payload.tasks,
+        keepProgress,
+        graph: payload.graph,
+        station: payload.station,
+        returnRoute: payload.returnRoute,
+      }),
     }));
     setMode('dashboard');
   };
@@ -387,6 +410,11 @@ const PlanningSidebar: React.FC = () => {
           {prereqWarnings.length > 0 && (
             <Alert severity="error">
               Génération impossible : {prereqWarnings.join(' ; ')}.
+            </Alert>
+          )}
+          {genError && (
+            <Alert severity="error" onClose={() => setGenError(null)}>
+              Génération impossible : {genError}.
             </Alert>
           )}
           {invalidCorridorCount > 0 && (
