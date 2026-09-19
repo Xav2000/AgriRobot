@@ -152,7 +152,13 @@ class NavigationMixin:
         o2 = orient(p1, p2, p4)
         o3 = orient(p3, p4, p1)
         o4 = orient(p3, p4, p2)
-        return o1 != o2 and o3 != o4
+        # Croisement STRICT uniquement : un segment dont l'extrémité
+        # TOUCHE un sommet d'obstacle n'est pas un croisement. Sinon
+        # toutes les arêtes du graphe de visibilité aboutissant aux
+        # sommets (pourtant nécessaires pour contourner) seraient
+        # bloquées, et seul le segment direct départ->but pourrait
+        # exister — dès qu'il coupe l'obstacle : plus aucun chemin.
+        return o1 * o2 < 0 and o3 * o4 < 0
 
     def _inflate_ring(self, ring, margin):
         """Gonfle un polygone d'obstacle vers l'extérieur de margin
