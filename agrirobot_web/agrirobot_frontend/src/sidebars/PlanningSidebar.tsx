@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Card, CardContent, Typography, Button, Alert, Stack, Box, TextField,
   Select, MenuItem, IconButton, Chip, Paper, InputLabel, FormControl,
-  Switch, FormControlLabel,
+  Switch, FormControlLabel, Divider,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -13,14 +13,19 @@ import HistoryIcon from '@mui/icons-material/History';
 import RouteIcon from '@mui/icons-material/Route';
 import MapIcon from '@mui/icons-material/Map';
 import AltRouteIcon from '@mui/icons-material/AltRoute';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import FileUploadIcon from '@mui/icons-material/FileUpload';
 import ROSLIB from 'roslib';
 import { useTasks, Task } from '../hooks/useTasks';
 import { useRos } from '../hooks/useRos';
 import { useUiMode } from '../context/UiModeContext';
-import { useZones } from '../context/ZonesContext';
+import { useZones, Zone, Corridor } from '../context/ZonesContext';
 import { corridorWarnings } from '../lib/corridors';
 import { distanceToNetwork } from '../lib/graph';
-import { useStation } from '../context/StationContext';
+import { useStation, Station } from '../context/StationContext';
+import { useWorklines, ValidatedCourse, ZoneEntryPoints } from '../context/WorklinesContext';
+import { usePlan } from '../context/PlanContext';
+import { buildProjectDocument, parseProjectDocument } from '../lib/storage';
 
 const TYPE_LABELS: Record<Task['type'], string> = {
   mowing: 'Tonte',
@@ -44,70 +49,39 @@ const formatLastRun = (iso?: string): string => {
 
 /**
  * Sidebar du mode planification : gestion de la file de tâches.
- * - File locale (brouillon) importée des tâches en attente reçues de
- *   /tasks/list ; les nouvelles tâches pending (parcours validés) sont
- *   ajoutées en fin de file sans toucher à l'ordre existant
+ * Refonte R3 : la file vit DANS le frontend (PlanContext, persistée) —
+ * c'est la source de vérité de la mission à venir.
  * - Ajout (nom, type, zone), suppression, réordonnancement par drag & drop
+ * - Activation/désactivation individuelle (décision purement locale :
+ *   la mission n'embarque que les tâches actives)
+ * - Le robot ne fait que RAPPORTER l'état d'exécution (/tasks/list) :
+ *   progression, statut et dernière exécution sont fusionnés dans la
+ *   file sans toucher à l'ordre ni au drapeau actif
  * - Contrôle de conformité des chemins de liaison avant génération
- *   (leur dessin/édition vit dans le mode dédié, accessible en bas)
- * - Activation/désactivation individuelle des tâches (etape 6.9) : une
- *   tâche désactivée reste dans la file mais sera sautée par le robot ;
- *   la date de dernière exécution est affichée sous le nom
- * - "Générer le parcours" publie generate_mission avec la file ordonnée
- *   puis ramène au dashboard ; les tâches envoyées restent visibles
- *   (ré-importées depuis la file pending du robot, source de vérité)
+ * - « Générer le parcours » publie generate_mission avec les tâches
+ *   actives ordonnées, puis ramène au dashboard ; la file reste
+ *   visible et éditable
+ * - Sauvegarde du projet (refonte R1) : export/import d'un document
+ *   JSON complet (zones, chemins, station, parcours, file)
  */
 const PlanningSidebar: React.FC = () => {
   const { ros, connectionState } = useRos();
   const { tasks } = useTasks();
   const { setMode, goBack } = useUiMode();
-  const { zones, corridors } = useZones();
-  const { station } = useStation();
+  const { zones, corridors, importAll } = useZones();
+  const { station, importStation } = useStation();
+  const { validated, zoneEntryPoints, importState } = useWorklines();
+  const {
+    queue, addTask: addTaskToPlan, removeTask, setTaskEnabled,
+    moveTask, mergeRobotState, replaceQueue,
+  } = usePlan();
 
   const disabled = connectionState !== 'connected';
 
-  // File locale (brouillon de la mission)
-  const [queue, setQueue] = useState<Task[]>([]);
-  // Tâches retirées LOCALEMENT par l'utilisateur (brouillon) : ne sont
-  // pas ré-importées tant que le robot ne les renvoie pas. Les tâches
-  // envoyées en mission ne sont plus blacklistées : la file du robot
-  // reste visible et éditable après « Générer le parcours ».
-  const removedRef = useRef<Set<string>>(new Set());
-
-  // Synchronisation avec la file en attente du robot (/tasks/list) :
-  // - file vide (première ouverture, ou après génération) -> repart des
-  //   tâches pending du robot : la file ENVOYÉE reste donc visible et
-  //   éditable après « Générer le parcours »
-  // - nouvelles tâches pending (p. ex. parcours validé en mode lignes
-  //   de guidage) ajoutées en fin de file, l'ordre existant est préservé
-  // - une tâche ROBOT qui disparaît des pending (retirée côté robot ou
-  //   terminée) quitte la file ; les tâches locales ne sont pas touchées
-  useEffect(() => {
-    setQueue(prev => {
-      const pending = tasks.filter(
-        t => t.status === 'pending' && !removedRef.current.has(t.id));
-      if (prev.length === 0) return pending.length > 0 ? pending : prev;
-      // Préserve l'ordre : les entrées existantes gardent leur place si
-      // elles existent toujours, les nouvelles vont en fin de file.
-      const pendingById = new Map(pending.map(t => [t.id, t]));
-      const kept = prev.filter(t => t.id.startsWith('local-') || pendingById.has(t.id));
-      const keptIds = new Set(kept.map(t => t.id));
-      const fresh = pending.filter(t => !keptIds.has(t.id));
-      // Met à jour les tâches robot (progression, enabled, dates) sans
-      // toucher à l'ordre ni aux tâches locales. Le drapeau enabled est
-      // conservé depuis la file locale tant que le robot ne renvoie pas
-      // EXPLICITEMENT ce champ : sinon une bascule locale (le robot ne
-      // connaît pas encore set_task_enabled) serait écrasée au prochain
-      // /tasks/list et le Switch se rallumerait aussitôt.
-      const refreshed = kept.map(t => {
-        if (t.id.startsWith('local-')) return t;
-        const rt = pendingById.get(t.id);
-        if (!rt) return t;
-        return { ...rt, enabled: rt.enabled !== undefined ? rt.enabled : t.enabled };
-      });
-      return fresh.length > 0 ? [...refreshed, ...fresh] : refreshed;
-    });
-  }, [tasks]);
+  // Le robot rapporte l'état d'exécution : on fusionne ces champs
+  // (progression, statut, dernière exécution) dans la file locale,
+  // sans jamais toucher à l'ordre ni au drapeau actif.
+  useEffect(() => { mergeRobotState(tasks); }, [tasks, mergeRobotState]);
 
   // Formulaire d'ajout
   const [newName, setNewName] = useState('');
@@ -127,12 +101,7 @@ const PlanningSidebar: React.FC = () => {
 
   const handleDragEnter = (index: number) => {
     if (dragIndex === null || dragIndex === index) return;
-    setQueue(prev => {
-      const next = [...prev];
-      const [moved] = next.splice(dragIndex, 1);
-      next.splice(index, 0, moved);
-      return next;
-    });
+    moveTask(dragIndex, index);
     setDragIndex(index);
   };
 
@@ -140,61 +109,28 @@ const PlanningSidebar: React.FC = () => {
 
   const addTask = () => {
     if (!newName.trim()) return;
-    setQueue(prev => [
-      ...prev,
-      {
-        id: 'local-' + Date.now(),
-        name: newName.trim(),
-        type: newType,
-        status: 'pending',
-        field: newField.trim() || undefined,
-      },
-    ]);
+    addTaskToPlan({
+      name: newName.trim(),
+      type: newType,
+      field: newField.trim() || undefined,
+    });
     setNewName('');
     setNewField('');
   };
 
-  // Etape 6.9 : bascule d'activation d'une tâche de la file. Les tâches
-  // connues du robot (id non local) voient l'état propagé immédiatement
-  // via set_task_enabled pour garder /tasks/list synchronisé.
-  const toggleEnabled = (id: string, enabled: boolean) => {
-    setQueue(prev => prev.map(t => t.id === id ? { ...t, enabled } : t));
-    if (ros && connectionState === 'connected' && !id.startsWith('local-')) {
-      const cmdPub = new ROSLIB.Topic({
-        ros,
-        name: '/task/command',
-        messageType: 'std_msgs/String',
-      });
-      cmdPub.publish(new ROSLIB.Message({
-        data: JSON.stringify({ action: 'set_task_enabled', id, enabled }),
-      }));
-    }
-  };
+  // Etape 6.9 : bascule d'activation — décision LOCALE (la mission
+  // n'embarque que les tâches actives ; plus de set_task_enabled).
+  const toggleEnabled = (id: string, enabled: boolean) => setTaskEnabled(id, enabled);
 
-  // Retire une tâche de la file. Les tâches connues du robot sont AUSSI
-  // retirées de sa file via remove_task (sinon elles réapparaîtraient au
-  // prochain /tasks/list).
-  const removeTask = (id: string) => {
-    removedRef.current.add(id);
-    setQueue(prev => prev.filter(t => t.id !== id));
-    if (ros && connectionState === 'connected' && !id.startsWith('local-')) {
-      const cmdPub = new ROSLIB.Topic({
-        ros,
-        name: '/task/command',
-        messageType: 'std_msgs/String',
-      });
-      cmdPub.publish(new ROSLIB.Message({
-        data: JSON.stringify({ action: 'remove_task', id }),
-      }));
-    }
-  };
+  // Retire une tâche de la file locale (plus de remove_task robot).
+  const handleRemoveTask = (id: string) => removeTask(id);
 
   const generateMission = () => {
-    if (!ros || disabled || queue.length === 0 || prereqWarnings.length > 0) return;
+    if (!ros || disabled || missionTasks.length === 0 || prereqWarnings.length > 0) return;
     // Missions déjà partiellement exécutées : demander à l'opérateur si
     // la progression des tâches entamées doit être conservée ou remise
     // à zéro avant de remplacer la mission.
-    const started = queue.filter(
+    const started = missionTasks.filter(
       t => (t.currentStep ?? 0) > 0 && t.status !== 'completed');
     if (started.length > 0) {
       setProgressTasks(started);
@@ -204,8 +140,9 @@ const PlanningSidebar: React.FC = () => {
     publishMission(false);
   };
 
-  // Publie generate_mission avec (ou sans) conservation de la
-  // progression des tâches entamées, puis vide la file locale.
+  // Publie generate_mission avec les tâches ACTIVES de la file, dans
+  // l'ordre choisi (ou sans) conservation de la progression des tâches
+  // entamées. La file locale reste intacte : source de vérité.
   const publishMission = (keepProgress: boolean) => {
     if (!ros || disabled) return;
     const cmdPub = new ROSLIB.Topic({
@@ -214,17 +151,15 @@ const PlanningSidebar: React.FC = () => {
       messageType: 'std_msgs/String',
     });
     cmdPub.publish(new ROSLIB.Message({
-      data: JSON.stringify({ action: 'generate_mission', tasks: queue, keepProgress }),
+      data: JSON.stringify({ action: 'generate_mission', tasks: missionTasks, keepProgress }),
     }));
-    // File vidée localement : elle sera ré-importée depuis la file
-    // pending du robot (/tasks/list) — les tâches envoyées restent
-    // visibles et éditables (retrait, désactivation, réordonnancement).
-    setQueue([]);
     setMode('dashboard');
   };
 
-  // Nombre de tâches désactivées dans la file (etape 6.9)
-  const disabledCount = queue.filter(t => t.enabled === false).length;
+  // Mission = tâches ACTIVES de la file, dans l'ordre choisi (les
+  // désactivées restent dans la file pour une prochaine mission).
+  const missionTasks = queue.filter(t => t.enabled !== false);
+  const disabledCount = queue.length - missionTasks.length;
 
   // Prérequis de mission : le robot doit pouvoir REJOINDRE les zones
   // depuis la station via les chemins de liaison. Sans station ni
@@ -239,7 +174,7 @@ const PlanningSidebar: React.FC = () => {
       prereqWarnings.push('la station est isolée (à plus de 1 m des chemins de liaison)');
     }
     // Point d'entrée de chaque tâche à waypoints : raccordé au réseau
-    for (const t of queue) {
+    for (const t of missionTasks) {
       if (!t.waypoints || t.waypoints.length === 0) continue;
       if (distanceToNetwork(corridors, t.waypoints[0]) > 1) {
         prereqWarnings.push('« ' + t.name + ' » : point d\u2019entrée non raccordé aux chemins de liaison');
@@ -251,6 +186,53 @@ const PlanningSidebar: React.FC = () => {
   const invalidCorridorCount = corridors.filter(
     c => corridorWarnings(c, zones).length > 0
   ).length;
+
+  // ---- Sauvegarde manuelle (refonte R1) : tout le projet dans un
+  // fichier JSON unique, réimportable (y compris sur un autre poste). ----
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importMsg, setImportMsg] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+
+  const exportProject = () => {
+    const doc = buildProjectDocument({
+      zones, corridors, station,
+      worklines: { validated, zoneEntryPoints },
+      plan: queue,
+    });
+    const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'agrirobot-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importProject = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const doc = parseProjectDocument(String(reader.result));
+        importAll((doc.zones as Zone[]) ?? [], (doc.corridors as Corridor[]) ?? []);
+        importStation((doc.station as Station | null) ?? null);
+        const wl = (doc.worklines ?? {}) as {
+          validated?: Record<string, ValidatedCourse>;
+          zoneEntryPoints?: ZoneEntryPoints;
+        };
+        importState(wl.validated ?? {}, wl.zoneEntryPoints ?? {});
+        replaceQueue((doc.plan as Task[]) ?? []);
+        setImportMsg({
+          severity: 'success',
+          text: 'Projet importé — zones, chemins, station, parcours et file restaurés.',
+        });
+      } catch (e) {
+        setImportMsg({
+          severity: 'error',
+          text: 'Import impossible : ' + (e instanceof Error ? e.message : String(e)),
+        });
+      }
+    };
+    reader.readAsText(file);
+  };
 
   return (
     <Card>
@@ -371,7 +353,7 @@ const PlanningSidebar: React.FC = () => {
                   labelPlacement="top"
                   sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 11 } }}
                 />
-                <IconButton size="small" onClick={() => removeTask(task.id)} aria-label="supprimer la tâche">
+                <IconButton size="small" onClick={() => handleRemoveTask(task.id)} aria-label="supprimer la tâche">
                   <DeleteIcon fontSize="small" />
                 </IconButton>
               </Paper>
@@ -420,10 +402,10 @@ const PlanningSidebar: React.FC = () => {
             size="large"
             startIcon={<RouteIcon />}
             onClick={generateMission}
-            disabled={disabled || queue.length === 0 || prereqWarnings.length > 0}
+            disabled={disabled || missionTasks.length === 0 || prereqWarnings.length > 0}
             fullWidth
           >
-            Générer le parcours{queue.length > 0 ? ' (' + queue.length + ' tâche' + (queue.length > 1 ? 's' : '') + ')' : ''}
+            Générer le parcours{missionTasks.length > 0 ? ' (' + missionTasks.length + ' tâche' + (missionTasks.length > 1 ? 's' : '') + ')' : ''}
           </Button>
           <Button
             variant="outlined"
@@ -441,6 +423,38 @@ const PlanningSidebar: React.FC = () => {
           >
             Éditer les chemins de liaison{corridors.length > 0 ? ' (' + corridors.length + ')' : ''}
           </Button>
+
+          <Divider sx={{ my: 1 }} />
+          <Typography variant="subtitle2" gutterBottom>
+            Sauvegarde du projet
+          </Typography>
+          <Stack direction="row" spacing={1}>
+            <Button variant="outlined" startIcon={<FileDownloadIcon />} onClick={exportProject} fullWidth>
+              Exporter
+            </Button>
+            <Button variant="outlined" startIcon={<FileUploadIcon />} onClick={() => fileInputRef.current?.click()} fullWidth>
+              Importer
+            </Button>
+          </Stack>
+          <Typography variant="caption" color="text.secondary">
+            Sauvegarde complète (zones, chemins, station, parcours, file) — automatique dans ce navigateur, fichier pour l'archivage ou un autre poste.
+          </Typography>
+          <input
+            hidden
+            type="file"
+            accept="application/json,.json"
+            ref={fileInputRef}
+            onChange={e => {
+              const f = e.target.files?.[0];
+              if (f) importProject(f);
+              e.target.value = '';
+            }}
+          />
+          {importMsg && (
+            <Alert severity={importMsg.severity} onClose={() => setImportMsg(null)} sx={{ mt: 1 }}>
+              {importMsg.text}
+            </Alert>
+          )}
         </Stack>
       </CardContent>
     </Card>
