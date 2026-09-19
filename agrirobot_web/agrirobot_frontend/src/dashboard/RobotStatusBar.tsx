@@ -6,6 +6,7 @@ import BatteryFullIcon from '@mui/icons-material/BatteryFull';
 import BatteryAlertIcon from '@mui/icons-material/BatteryAlert';
 import WbSunnyIcon from '@mui/icons-material/WbSunny';
 import UmbrellaIcon from '@mui/icons-material/Umbrella';
+import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import ROSLIB from 'roslib';
 import { useRos } from '../hooks/useRos';
 import { useRobotStatus } from '../hooks/useRobotStatus';
@@ -101,6 +102,20 @@ export const RobotStatusBar: React.FC = () => {
                 label={(robotStatus.weather.condition === 'rain' ? 'Pluie' : 'Beau temps')
                   + (robotStatus.weather.source === 'override' ? ' (forcé)' : '')}
                 onClick={() => sendCommand('set_weather_override', { toggle: true })}
+                sx={{ cursor: 'pointer' }}
+              />
+            )}
+
+            {/* RTK (6.10c) : sous l'abri pas de fix (normal) ; hors
+                abri, pas de déplacement sans fix. Clic = forçage dev. */}
+            {robotStatus?.rtk && (
+              <Chip
+                size="small"
+                icon={<SatelliteAltIcon />}
+                color={robotStatus.rtk.fix ? 'success' : 'error'}
+                label={(robotStatus.rtk.fix ? 'RTK' : 'Pas de fix')
+                  + (robotStatus.rtk.source === 'override' ? ' (forcé)' : '')}
+                onClick={() => sendCommand('set_rtk_override', { toggle: true })}
                 sx={{ cursor: 'pointer' }}
               />
             )}

@@ -144,7 +144,7 @@ class AgriRobotNode(NavigationMixin, AutomationMixin, Node):
         """Tick 2 Hz : avance l'activité courante, publie l'état,
         sauvegarde périodiquement (10 s)."""
         self._ticks += 1
-        if not self.paused:
+        if not self.paused and not self.rtk_hold:
             if self.activity == 'work':
                 self.advance_mission()
             elif self.activity == 'transit':
@@ -339,6 +339,7 @@ class AgriRobotNode(NavigationMixin, AutomationMixin, Node):
             'weather': self.weather.snapshot(),
             'config': self.robot_config,
             'auto': self.auto_snapshot(),
+            'rtk': self.rtk_snapshot(),
         })
         self.robot_status_pub.publish(msg)
 
@@ -640,11 +641,9 @@ class AgriRobotNode(NavigationMixin, AutomationMixin, Node):
                 else:
                     self.weather.set_override(command.get('condition'))
 
-            elif action == 'set_robot_config':
-                self.handle_set_robot_config(command)
-
-            elif action == 'set_auto_mode':
-                self.handle_set_auto_mode(command)
+            elif action in ('set_robot_config', 'set_auto_mode',
+                            'set_rtk_override'):
+                self.handle_automation_command(command)
             elif action == 'go_to_charge':
                 self.robot_status = 'going_to_charge'
                 self.get_logger().info('Robot going to charging station')
@@ -671,7 +670,7 @@ def main(args=None):
     # override de dev via set_weather_override. Non persiste.
     node.weather = WeatherMonitor()
     node.weather.start()
-    # Mode automatique (6.10b) : boucle de securite 60 s.
+    # 6.10b/c : mode automatique + RTK.
     node.init_automation()
     try:
         rclpy.spin(node)

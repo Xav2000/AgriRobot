@@ -9,6 +9,7 @@ export interface RobotStatus {
   weather?: { condition: 'sun' | 'rain'; source: 'service' | 'override' | 'unknown' };
   config?: { batteryMin: number; batteryFull: number };
   auto?: { enabled: boolean; journal: AutoJournalEntry[] };
+  rtk?: { fix: boolean; underShelter: boolean; source: 'simu' | 'override'; hold: boolean };
 }
 
 /** Entrée du journal des décisions du mode automatique (node). */
