@@ -19,16 +19,25 @@ activity == 'charging') il n'y a PAS de fix — c'est normal, le depart
 reste autorise. Hors abri, tout deplacement exige un fix : perte de
 fix en mission => robot fige sur place + outils coupes (rtk_hold),
 reprise automatique au retour du fix. Override dev : set_rtk_override.
+
+Pluie (etape 6.10d) : pluie pendant une mission (manuelle ou auto)
+=> retour a la station par la machinerie d interruption batterie
+(progression conservee). Reprise AUTOMATIQUE quand il ne pleut plus
+depuis rainDelayMin minutes (config robot). En mode auto, la reprise
+verifie en plus que la tache est toujours dans sa plage horaire
+(plannings fournis par le frontend dans set_auto_mode).
 """
 
 import json
 import os
+import time
 from datetime import datetime, timezone
 
 AUTO_INTERVAL_S = 60.0
 RTK_POLL_S = 1.0
 CONFIG_FILE = os.path.expanduser('~/.agrirobot/automation.json')
-DEFAULT_CONFIG = {'batteryMin': 80.0, 'batteryFull': 100.0}
+DEFAULT_CONFIG = {'batteryMin': 80.0, 'batteryFull': 100.0,
+                   'rainDelayMin': 20.0}
 JOURNAL_MAX = 50
 
 
@@ -45,6 +54,11 @@ class AutomationMixin:
         self.rtk_override = None
         self.rtk_hold = False
         self.rtk_timer = self.create_timer(RTK_POLL_S, self.rtk_tick)
+        # Pluie (6.10d) : derniere detection humide + garde de reprise.
+        self.rain_last_wet_at = None
+        self.rain_wait_logged = False
+        self.auto_schedules = {}
+        self._install_rain_guard()
 
     # ------------------------------------------------------------ config
 
@@ -115,6 +129,90 @@ class AutomationMixin:
         elif self.rtk_hold:
             self.rtk_hold = False
             self.auto_log('fix RTK retrouve : reprise du deplacement')
+        self._rain_tick()
+
+    # ---------------------------------------------------------------- pluie
+
+    def _raining(self):
+        weather = getattr(self, 'weather', None)
+        if weather is None:
+            return False
+        return weather.snapshot().get('condition') == 'rain'
+
+    def rain_wait_active(self):
+        """Vrai s'il pleut ou si le delai post-pluie n'est pas ecoule."""
+        if self._raining():
+            return True
+        if self.rain_last_wet_at is None:
+            return False
+        delay = self.robot_config.get('rainDelayMin', 20.0) * 60.0
+        return (time.monotonic() - self.rain_last_wet_at) < delay
+
+    def _rain_tick(self):
+        """Pluie pendant la mission : retour a la station (progression
+        conservee, meme machinerie que la coupure batterie). La pause
+        operateur n est jamais outrepassee."""
+        if self._raining():
+            self.rain_last_wet_at = time.monotonic()
+            if (not self.paused
+                    and self.activity in ('work', 'transit', 'resume')):
+                self.interrupt_for_charge()
+                self.auto_log('pluie detectee : retour a la station')
+
+    def _install_rain_guard(self):
+        """Interdit la reprise (finish_charging) tant qu'il pleut ou
+        que le delai post-pluie court, et verifie la plage horaire en
+        mode auto. Patch pose apres construction du node."""
+        node_finish = self.finish_charging
+
+        def guarded_finish():
+            if self.rain_wait_active():
+                if not self.rain_wait_logged:
+                    self.rain_wait_logged = True
+                    self.auto_log('pluie : reprise differee a la station')
+                return
+            if not self._auto_window_ok():
+                if not self.rain_wait_logged:
+                    self.rain_wait_logged = True
+                    self.auto_log('plage horaire terminee : pas de reprise')
+                return
+            self.rain_wait_logged = False
+            node_finish()
+
+        self.finish_charging = guarded_finish
+
+    def _auto_window_ok(self):
+        """Mode auto : la tache a reprendre est-elle encore dans sa
+        plage horaire ? (plannings recus du frontend a l armement)"""
+        if not self.auto_enabled or not self.auto_schedules:
+            return True
+        if not (0 <= self.current_task_idx < len(self.tasks)):
+            return True
+        tid = self.tasks[self.current_task_idx].get('id')
+        sched = self.auto_schedules.get(tid)
+        if not sched:
+            return True
+        now = datetime.now()
+        days = sched.get('daysOfWeek') or []
+        if days and now.weekday() not in [(d + 6) % 7 for d in days]:
+            return False    # JS : 0 = dimanche ; Python : 0 = lundi
+        ws = sched.get('windowStart') or ''
+        we = sched.get('windowEnd') or ''
+        if ws and we:
+            cur = now.hour * 60 + now.minute
+
+            def hm(txt):
+                parts = txt.split(':')
+                if (len(parts) == 2 and parts[0].isdigit()
+                        and parts[1].isdigit()):
+                    return int(parts[0]) * 60 + int(parts[1])
+                return None
+
+            a, b = hm(ws), hm(we)
+            if (a is not None and b is not None and a <= b
+                    and not a <= cur <= b):
+                return False
+        return True
 
     # ---------------------------------------------------------- commandes
 
@@ -137,13 +235,14 @@ class AutomationMixin:
 
     def handle_set_robot_config(self, command):
         cfg = command.get('config') or {}
-        for key in ('batteryMin', 'batteryFull'):
+        for key in ('batteryMin', 'batteryFull', 'rainDelayMin'):
             if key in cfg:
                 try:
                     value = float(cfg[key])
                 except (TypeError, ValueError):
                     continue
-                self.robot_config[key] = max(0.0, min(100.0, value))
+                limit = 480.0 if key == 'rainDelayMin' else 100.0
+                self.robot_config[key] = max(0.0, min(limit, value))
         self._save_config()
         self.get_logger().info(
             'Config robot : batterie min %.1f %% / pleine %.1f %%'
@@ -153,6 +252,11 @@ class AutomationMixin:
     def handle_set_auto_mode(self, command):
         self.auto_enabled = bool(command.get('enabled'))
         if self.auto_enabled:
+            # Plannings des taches dues : verification de plage horaire
+            # avant toute reprise post-pluie en mode auto.
+            self.auto_schedules = {s.get('id'): s
+                                   for s in command.get('schedules', [])
+                                   if s.get('id')}
             self.auto_log('mode automatique arme')
             # Verifie tout de suite (pas besoin d attendre 60 s).
             self.auto_tick()
@@ -187,6 +291,8 @@ class AutomationMixin:
             snapshot = weather.snapshot()
             if snapshot.get('condition') == 'rain':
                 return 'pluie detectee (meteo)'
+        if self.rain_wait_active():
+            return 'delai post-pluie en cours'
         if self.battery < self.robot_config['batteryMin']:
             return ('batterie %.1f %% < seuil %.1f %%'
                     % (self.battery, self.robot_config['batteryMin']))

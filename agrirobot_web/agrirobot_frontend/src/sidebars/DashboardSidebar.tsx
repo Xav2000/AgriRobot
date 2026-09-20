@@ -134,7 +134,15 @@ const DashboardSidebar: React.FC = () => {
         window.alert(e instanceof Error ? e.message : String(e));
         return;
       }
-      setTimeout(() => sendCommand({ action: 'set_auto_mode', enabled: true }), 500);
+      setTimeout(() => sendCommand({
+        action: 'set_auto_mode',
+        enabled: true,
+        // Plannings des tâches dues : le node vérifie la plage horaire
+        // avant de reprendre après une interruption pluie (6.10d).
+        schedules: dueTasks
+          .filter(t => t.schedule)
+          .map(t => ({ id: t.id, ...t.schedule })),
+      }), 500);
     } else {
       sendCommand({ action: 'set_auto_mode', enabled: false });
     }

@@ -24,15 +24,18 @@ const SettingsSidebar: React.FC = () => {
 
   const [batteryMin, setBatteryMin] = useState('80');
   const [batteryFull, setBatteryFull] = useState('100');
+  const [rainDelay, setRainDelay] = useState('20');
   const [saved, setSaved] = useState(false);
 
   // Valeurs courantes venant du node.
   const cfgMin = robotStatus?.config?.batteryMin;
   const cfgFull = robotStatus?.config?.batteryFull;
+  const cfgRain = robotStatus?.config?.rainDelayMin;
   useEffect(() => {
     if (cfgMin !== undefined) setBatteryMin(String(cfgMin));
     if (cfgFull !== undefined) setBatteryFull(String(cfgFull));
-  }, [cfgMin, cfgFull]);
+    if (cfgRain !== undefined) setRainDelay(String(cfgRain));
+  }, [cfgMin, cfgFull, cfgRain]);
 
   const handleSave = () => {
     if (!ros || disabled) return;
@@ -47,6 +50,7 @@ const SettingsSidebar: React.FC = () => {
         config: {
           batteryMin: Number(batteryMin),
           batteryFull: Number(batteryFull),
+          rainDelayMin: Number(rainDelay),
         },
       }),
     }));
@@ -67,8 +71,8 @@ const SettingsSidebar: React.FC = () => {
         </Stack>
 
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-          Seuils de batterie utilisés par le mode automatique — persistés
-          sur le robot.
+          Seuils de batterie et délai de reprise après la pluie —
+          utilisés par le mode automatique, persistés sur le robot.
         </Typography>
 
         <Stack spacing={2}>
@@ -88,6 +92,16 @@ const SettingsSidebar: React.FC = () => {
             value={batteryFull}
             onChange={e => setBatteryFull(e.target.value)}
             inputProps={{ min: 0, max: 100 }}
+            disabled={disabled}
+            size="small"
+            fullWidth
+          />
+          <TextField
+            label="Reprise après pluie — délai (min)"
+            type="number"
+            value={rainDelay}
+            onChange={e => setRainDelay(e.target.value)}
+            inputProps={{ min: 0, max: 480 }}
             disabled={disabled}
             size="small"
             fullWidth
