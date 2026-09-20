@@ -297,11 +297,6 @@ const PlanningSidebar: React.FC = () => {
           Retour
         </Button>
 
-        <Typography variant="h6" gutterBottom>Planification des tâches</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Glisse les tâches pour définir l'ordre de priorité, puis génère le parcours.
-        </Typography>
-
         {disabled && (
           <Alert severity="warning" sx={{ mb: 2 }}>
             ROS 2 non connecté — la génération du parcours sera impossible
