@@ -17,6 +17,8 @@ export interface Task {
   currentStep?: number;
   /** Waypoints reels [lat, lng] du parcours valide (etape 6.4) */
   waypoints?: [number, number][];
+  /** Types de segment paralleles aux waypoints (headland/sweep/transition/obstacle) - etape outils */
+  waypointKinds?: string[];
   /**
    * Etape 6.9 : tâche active (true par defaut) ou désactivée — une tâche
    * désactivée reste dans la file mais le robot la saute lors de la mission.

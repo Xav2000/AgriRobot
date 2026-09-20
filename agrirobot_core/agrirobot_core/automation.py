@@ -32,12 +32,14 @@ import json
 import os
 import time
 from datetime import datetime, timezone
+from std_msgs.msg import String
 
 AUTO_INTERVAL_S = 60.0
 RTK_POLL_S = 1.0
 CONFIG_FILE = os.path.expanduser('~/.agrirobot/automation.json')
 DEFAULT_CONFIG = {'batteryMin': 80.0, 'batteryFull': 100.0,
-                   'rainDelayMin': 20.0}
+                   'rainDelayMin': 20.0,
+                   'keepRunningThroughTransitions': True}
 JOURNAL_MAX = 50
 
 
@@ -68,7 +70,10 @@ class AutomationMixin:
                 data = json.load(f)
             for key in DEFAULT_CONFIG:
                 if key in data:
-                    self.robot_config[key] = float(data[key])
+                    if key == 'keepRunningThroughTransitions':
+                        self.robot_config[key] = bool(data[key])
+                    else:
+                        self.robot_config[key] = float(data[key])
         except (OSError, ValueError, TypeError):
             pass
 
@@ -99,6 +104,53 @@ class AutomationMixin:
             'enabled': self.auto_enabled,
             'journal': self.auto_journal[-10:],
         }
+
+    # ------------------------------------------------------------- outil
+
+    def tool_snapshot(self):
+        """Etat de l'outil de travail (etape outils) : actif + type du
+        segment courant. keepRunningThroughTransitions (config) : True
+        = l'outil reste en route pendant les transitions (lame de
+        tondeuse : on ne coupe pas le moteur au demi-tour) ; False =
+        l'outil est releve sur les transitions (travail du sol). Types
+        headland/sweep/obstacle = travail ; transition = transit
+        interne a la zone."""
+        keep = bool(self.robot_config.get('keepRunningThroughTransitions',
+                                           True))
+        kind = 'idle'
+        active = False
+        if (self.task_phase == 'work'
+                and self.activity in ('work', 'transit')
+                and not self.paused and not self.rtk_hold):
+            task = (self.tasks[self.current_task_idx]
+                    if 0 <= self.current_task_idx < len(self.tasks)
+                    else None)
+            kinds = (task.get('waypoint_kinds') or []) if task else []
+            idx = max(0, self.current_wp_idx - 1)
+            kind = kinds[idx] if idx < len(kinds) else 'sweep'
+            active = True if keep else kind in ('headland', 'sweep',
+                                                'obstacle')
+        elif self.activity == 'transit':
+            kind = 'transit'
+        else:
+            kind = self.activity or 'idle'
+        return {'active': active, 'kind': kind}
+
+    # ---------------------------------------------------------- publication
+
+    def publish_status(self):
+        msg = String()
+        msg.data = json.dumps({
+            'status': self.robot_status,
+            'battery': round(self.battery, 1),
+            'position': {'x': self.robot_pos[0], 'y': self.robot_pos[1]},
+            'weather': self.weather.snapshot(),
+            'config': self.robot_config,
+            'auto': self.auto_snapshot(),
+            'rtk': self.rtk_snapshot(),
+            'tool': self.tool_snapshot(),
+        })
+        self.robot_status_pub.publish(msg)
 
     # ---------------------------------------------------------------- RTK
 
@@ -243,6 +295,9 @@ class AutomationMixin:
                     continue
                 limit = 480.0 if key == 'rainDelayMin' else 100.0
                 self.robot_config[key] = max(0.0, min(limit, value))
+        if 'keepRunningThroughTransitions' in cfg:
+            self.robot_config['keepRunningThroughTransitions'] = bool(
+                cfg['keepRunningThroughTransitions'])
         self._save_config()
         self.get_logger().info(
             'Config robot : batterie min %.1f %% / pleine %.1f %%'

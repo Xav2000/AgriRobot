@@ -330,19 +330,6 @@ class AgriRobotNode(NavigationMixin, AutomationMixin, Node):
         msg.pose.orientation.w = 1.0
         self.robot_position_pub.publish(msg)
 
-    def publish_status(self):
-        msg = String()
-        msg.data = json.dumps({
-            'status': self.robot_status,
-            'battery': round(self.battery, 1),
-            'position': {'x': self.robot_pos[0], 'y': self.robot_pos[1]},
-            'weather': self.weather.snapshot(),
-            'config': self.robot_config,
-            'auto': self.auto_snapshot(),
-            'rtk': self.rtk_snapshot(),
-        })
-        self.robot_status_pub.publish(msg)
-
     def public_task(self, t):
         """Représentation d'une tâche pour /tasks/list (avec progression)."""
         total = len(t.get('waypoints', []))
@@ -442,6 +429,7 @@ class AgriRobotNode(NavigationMixin, AutomationMixin, Node):
                         'status': status,
                         'field': t.get('field'),
                         'waypoints': wps,
+                        'waypoint_kinds': t.get('waypointKinds') or [],
                         'transit': transit,
                         'geometry': geometry,
                         'completed_waypoints': done,

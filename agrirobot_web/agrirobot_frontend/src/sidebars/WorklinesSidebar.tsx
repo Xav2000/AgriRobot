@@ -13,7 +13,7 @@ import { useUiMode } from '../context/UiModeContext';
 import { useZones } from '../context/ZonesContext';
 import { useWorklines } from '../context/WorklinesContext';
 import { usePlan } from '../context/PlanContext';
-import { toWaypoints } from '../lib/worklines';
+import { flattenWorklines } from '../lib/waypoints';
 
 /**
  * Sidebar du mode lignes de guidage : saisie des paramètres de génération
@@ -83,11 +83,13 @@ const WorklinesSidebar: React.FC = () => {
     // Refonte R3 : la tâche vit dans la file de planification du
     // FRONTEND (persistée). Le robot ne recevra que la mission finale
     // (generate_mission), avec ces waypoints.
+    const { waypoints, kinds } = flattenWorklines(result);
     const id = plan.addTask({
       name: 'Tonte — ' + targetZone.name,
       type: 'mowing',
       field: targetZone.name,
-      waypoints: toWaypoints(result),
+      waypoints,
+      waypointKinds: kinds,
     });
     setConfirmUnlock(false);
     lock(id);

@@ -7,6 +7,7 @@ import BatteryAlertIcon from '@mui/icons-material/BatteryAlert';
 import WbSunnyIcon from '@mui/icons-material/WbSunny';
 import UmbrellaIcon from '@mui/icons-material/Umbrella';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
+import BuildIcon from '@mui/icons-material/Build';
 import ROSLIB from 'roslib';
 import { useRos } from '../hooks/useRos';
 import { useRobotStatus } from '../hooks/useRobotStatus';
@@ -19,6 +20,15 @@ const STATUS_INFO: Record<string, { color: 'success' | 'warning' | 'info' | 'err
   returning_to_charge:{ color: 'warning', label: 'Retour à la station' },
   charging:           { color: 'info',    label: 'En charge' },
   error:              { color: 'error',   label: 'Erreur' },
+};
+
+const KIND_LABEL: Record<string, string> = {
+  headland: 'contour',
+  sweep: 'passage',
+  obstacle: "contour d'obstacle",
+  transition: 'transition',
+  transit: 'transit',
+  idle: 'inactif',
 };
 
 /**
@@ -117,6 +127,20 @@ export const RobotStatusBar: React.FC = () => {
                   + (robotStatus.rtk.source === 'override' ? ' (forcé)' : '')}
                 onClick={() => sendCommand('set_rtk_override', { toggle: true })}
                 sx={{ cursor: 'pointer' }}
+              />
+            )}
+
+            {/* Outil (étape outils) : actif = au travail, relevé = en
+                transit. Comportement (lame vs relevage) réglé dans
+                Réglages. */}
+            {robotStatus?.tool && (
+              <Chip
+                size="small"
+                icon={<BuildIcon />}
+                color={robotStatus.tool.active ? 'success' : 'default'}
+                label={robotStatus.tool.active ? 'Outil actif' : 'Outil relevé'}
+                title={'Segment : ' + (KIND_LABEL[robotStatus.tool.kind] ?? robotStatus.tool.kind)}
+                sx={robotStatus.tool.active ? {} : { opacity: 0.6 }}
               />
             )}
 

@@ -47,6 +47,7 @@ export const PlanProvider: React.FC<{ children: React.ReactNode }> = ({ children
       status: 'pending',
       field: task.field,
       waypoints: task.waypoints,
+      waypointKinds: task.waypointKinds,
       enabled: true,
     }]);
     return id;

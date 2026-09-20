@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Card, CardContent, Typography, Stack, TextField, Button,
+  Switch, FormControlLabel,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SaveIcon from '@mui/icons-material/Save';
@@ -26,16 +27,19 @@ const SettingsSidebar: React.FC = () => {
   const [batteryFull, setBatteryFull] = useState('100');
   const [rainDelay, setRainDelay] = useState('20');
   const [saved, setSaved] = useState(false);
+  const [keepRunning, setKeepRunning] = useState(true);
 
   // Valeurs courantes venant du node.
   const cfgMin = robotStatus?.config?.batteryMin;
   const cfgFull = robotStatus?.config?.batteryFull;
   const cfgRain = robotStatus?.config?.rainDelayMin;
+  const cfgKeep = robotStatus?.config?.keepRunningThroughTransitions;
   useEffect(() => {
     if (cfgMin !== undefined) setBatteryMin(String(cfgMin));
     if (cfgFull !== undefined) setBatteryFull(String(cfgFull));
     if (cfgRain !== undefined) setRainDelay(String(cfgRain));
-  }, [cfgMin, cfgFull, cfgRain]);
+    if (cfgKeep !== undefined) setKeepRunning(cfgKeep);
+  }, [cfgMin, cfgFull, cfgRain, cfgKeep]);
 
   const handleSave = () => {
     if (!ros || disabled) return;
@@ -51,6 +55,7 @@ const SettingsSidebar: React.FC = () => {
           batteryMin: Number(batteryMin),
           batteryFull: Number(batteryFull),
           rainDelayMin: Number(rainDelay),
+          keepRunningThroughTransitions: keepRunning,
         },
       }),
     }));
@@ -105,6 +110,16 @@ const SettingsSidebar: React.FC = () => {
             disabled={disabled}
             size="small"
             fullWidth
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={keepRunning}
+                onChange={e => setKeepRunning(e.target.checked)}
+                disabled={disabled}
+              />
+            }
+            label="Garder l'outil en route pendant les transitions (lame) / le relever (travail du sol)"
           />
           <Button
             variant="contained"
