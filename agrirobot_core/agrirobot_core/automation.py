@@ -126,10 +126,17 @@ class AutomationMixin:
                     if 0 <= self.current_task_idx < len(self.tasks)
                     else None)
             kinds = (task.get('waypoint_kinds') or []) if task else []
-            idx = max(0, self.current_wp_idx - 1)
-            kind = kinds[idx] if idx < len(kinds) else 'sweep'
-            active = True if keep else kind in ('headland', 'sweep',
-                                                'obstacle')
+            if not kinds:
+                # Tache pre-outils (sans types de segment) : impossible
+                # de distinguer transitions et passages -> outil actif
+                # pendant toute la phase work (comportement lame).
+                kind = 'sweep'
+                active = True
+            else:
+                idx = max(0, self.current_wp_idx - 1)
+                kind = kinds[idx] if idx < len(kinds) else 'sweep'
+                active = True if keep else kind in ('headland', 'sweep',
+                                                    'obstacle')
         elif self.activity == 'transit':
             kind = 'transit'
         else:
