@@ -7,7 +7,7 @@ export interface RobotStatus {
   battery: number;
   position?: { x: number; y: number };
   weather?: { condition: 'sun' | 'rain'; source: 'service' | 'override' | 'unknown' };
-  config?: { batteryMin: number; batteryFull: number };
+  config?: { batteryMin: number; batteryFull: number; rainDelayMin?: number };
   auto?: { enabled: boolean; journal: AutoJournalEntry[] };
   rtk?: { fix: boolean; underShelter: boolean; source: 'simu' | 'override'; hold: boolean };
 }
