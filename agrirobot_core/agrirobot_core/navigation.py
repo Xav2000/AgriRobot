@@ -227,7 +227,10 @@ class NavigationMixin:
             if len(ring) >= 3:
                 rings.append(self._inflate_ring(ring, margin))
         if not rings:
-            return None
+            # Zone sans AUCUN obstacle : rien a contourner — la
+            # ligne directe depart->portail est sure (le contour de
+            # la zone ne bloque pas, cf. docstring).
+            return [tuple(start), tuple(goal)]
         pts = [tuple(start), tuple(goal)]
         for r in rings:
             pts += [tuple(p) for p in r]
