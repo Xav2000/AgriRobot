@@ -189,7 +189,7 @@ class F2CPlannerNode(Node):
         cell.addRing(make_ring(mow_xy))
         for ring_xy in obs_xy:
             inflated = _inflate_ring(ring_xy, obstacle_margin)  # S1
-            cell.addRing(make_ring(inflated))  # trou interne -> S0
+            cell.addRing(make_ring(inflated))  # trou internal -> S0
         cells = Cells()
         cells.addGeometry(cell)
 
@@ -239,44 +239,6 @@ class F2CPlannerNode(Node):
         except Exception as e:  # ordre brut si le tri echoue
             self.get_logger().warning('Tri boustrophedon indisponible (%s) — ordre brut' % e)
 
-        # --- anneau de headland TONDU (couverture 100 %)
-        # generateHeadlandSwaths renvoie l anneau en swaths parcourables.
-        hl_swaths = None
-        try:
-            hl_swaths = ConstHL().generateHeadlandSwaths(
-                cells, work_width, headland_passes, True)
-        except TypeError:
-            try:
-                hl_swaths = ConstHL().generateHeadlandSwaths(
-                    cells, work_width, headland_passes)
-            except Exception as e:
-                self.get_logger().warning(
-                    'Swaths de contour indisponibles (%s) - couverture sans bande peripherique' % e)
-        except Exception as e:
-            self.get_logger().warning(
-                'Swaths de contour indisponibles (%s) - couverture sans bande peripherique' % e)
-
-        if hl_swaths is not None:
-            hl_swaths = self._flatten_swaths(hl_swaths)
-            try:
-                n_hl = hl_swaths.size()
-            except Exception:
-                n_hl = len(hl_swaths)
-            if n_hl > 0:
-                SwathsCls = _cls('Swaths')
-                combined = SwathsCls()
-                for i in range(n_hl):
-                    combined.push_back(
-                        hl_swaths.at(i) if hasattr(hl_swaths, 'at') else hl_swaths[i])
-                n_cov = swaths.size() if hasattr(swaths, 'size') else len(swaths)
-                for i in range(n_cov):
-                    combined.push_back(
-                        swaths.at(i) if hasattr(swaths, 'at') else swaths[i])
-                swaths = combined
-                n_swaths = n_swaths + n_hl
-                self.get_logger().info(
-                    'Headland : %d swaths de contour ajoutes au chemin' % n_hl)
-
         # --- chemin complet avec virages Reeds-Shepp (Gazonator sait reculer)
         waypoints = []
         kinds = []
@@ -313,6 +275,20 @@ class F2CPlannerNode(Node):
             self.get_logger().warning(
                 'Path planner F2C indisponible (%s) — sortie swaths bruts' % e)
             waypoints, kinds = self._extract_swaths(swaths)
+
+        # --- anneau(x) de contour TONDU (couverture 100 %), 100 % Python :
+        # prefixes aux allers-retours F2C. Nav2 pilote chaque waypoint un a
+        # un, il gere de lui-meme le transit entre la fin de l anneau et le
+        # premier swath - pas besoin que ce soit dans planPath.
+        if headland_passes > 0:
+            hl_pts, hl_kinds = self._headland_ring_pts(
+                mow_xy, work_width, headland_passes)
+            if hl_pts:
+                waypoints = hl_pts + waypoints
+                kinds = hl_kinds + kinds
+                self.get_logger().info(
+                    'Headland : %d points de contour (%d anneau(x)) prefixes au chemin'
+                    % (len(hl_pts), headland_passes))
 
         if len(waypoints) < 2:
             self.get_logger().error('Chemin vide apres extraction')
@@ -384,11 +360,8 @@ class F2CPlannerNode(Node):
         return pts, kinds
 
     def _flatten_swaths(self, swaths):
-        """Normalise en Swaths plat. Detection par le SYSTEME DE TYPES SWIG
-        lui-meme (les noms de types et les attributs varient selon la
-        methode appelante) : on tente push_back(premier element) dans un
-        Swaths de test - si ca passe, le conteneur est deja plat ; si
-        TypeError, les elements sont des groupes -> on aplatit."""
+        """v1.x : generateBestSwaths renvoie SwathsByCells ; on aplatit en
+        Swaths via la sonde de type SWIG (push_back accepte = deja plat)."""
         SwathsCls = _cls('Swaths')
         n = swaths.size() if hasattr(swaths, 'size') else len(swaths)
         if n == 0:
@@ -397,7 +370,7 @@ class F2CPlannerNode(Node):
         probe = SwathsCls()
         try:
             probe.push_back(first)
-            return swaths  # deja plat : les elements sont des Swath
+            return swaths  # deja plat
         except TypeError:
             pass
         flat = SwathsCls()
@@ -432,6 +405,39 @@ class F2CPlannerNode(Node):
                 kinds.append('sweep')
             if end is not None:
                 pts.append((float(end.getX()), float(end.getY())))
+                kinds.append('sweep')
+        return pts, kinds
+
+    def _headland_ring_pts(self, mow_xy, work_width, passes, step=0.6):
+        """Anneaux de contour TONDUS, 100 % Python (generateHeadlandSwaths
+        v1.x renvoie un tuple de Cells inexploitable - sonde terrain).
+
+        Chaque anneau k = offset interieur du polygone de (k + 0.5) largeurs
+        (le 1er a w/2 du bord : la bande [0, w] est couverte, puis k*w),
+        densifie au pas 'step' pour un suivi propre par Nav2. Les anneaux
+        sont parcourus bord -> interieur, avant les allers-retours.
+        """
+        pts, kinds = [], []
+        for k in range(passes):
+            offset = (k + 0.5) * work_width
+            ring = _inflate_ring(mow_xy, -offset)  # negatif = vers l interieur
+            if len(ring) < 3:
+                break
+            # densification le long du perimetre (polygone ferme)
+            peri = ring + [ring[0]]
+            for i in range(len(peri) - 1):
+                (x1, y1), (x2, y2) = peri[i], peri[i + 1]
+                seg = math.hypot(x2 - x1, y2 - y1)
+                if seg < 1e-9:
+                    continue
+                n_sub = max(1, int(seg / step))
+                for j in range(n_sub):
+                    t = j / n_sub
+                    pts.append((x1 + (x2 - x1) * t, y1 + (y2 - y1) * t))
+                    kinds.append('sweep')
+            if pts:
+                # fin d anneau = point de fermeture (retour au depart)
+                pts.append(peri[0])
                 kinds.append('sweep')
         return pts, kinds
 
