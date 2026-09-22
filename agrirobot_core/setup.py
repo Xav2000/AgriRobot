@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'nav2_sim_node = agrirobot_core.nav2_sim_node:main',
             'f2c_planner_node = agrirobot_core.f2c_planner_node:main',
+            'mission_supervisor_node = agrirobot_core.mission_supervisor_node:main',
         ],
     },
 )
