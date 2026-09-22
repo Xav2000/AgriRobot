@@ -252,8 +252,8 @@ class F2CPlannerNode(Node):
             RS = _cls('PP_ReedsSheppCurves', 'PP_ReedsSheppSolver', 'ReedsSheppSolver')
             pp = PathPlanning()
             first_err = None
+            path = None
             for call in (lambda: pp.planPath(robot, swaths, RS()),   # v1.x confirme
-                         lambda: pp.planPath(robot, swaths, RS()),
                          lambda: pp.planBestPath(robot, swaths),
                          lambda: pp.searchBestPath(robot, swaths)):
                 try:
@@ -263,8 +263,6 @@ class F2CPlannerNode(Node):
                     if first_err is None:
                         first_err = '%s: %s' % (type(e).__name__, e)
                     continue
-            else:
-                path = None
             if path is None:
                 self.get_logger().warning('planPath a echoue : %s' % first_err)
                 raise RuntimeError('planPath indisponible : %s' % first_err)
@@ -319,20 +317,31 @@ class F2CPlannerNode(Node):
     # ----------------------------------------------------------- extraction
 
     def _extract_path(self, path):
-        """Extrait (waypoints, kinds) d'un F2CPath ; virages = 'transition'."""
+        """Extrait (waypoints, kinds) d'un F2CPath v1.x ; virages = 'transition'.
+
+        PathState expose les descripteurs : point, angle, dir, len, type, velocity.
+        Les sections de virage ont type == PathSectionType_TURN.
+        """
+        TURN = getattr(f2c, 'PathSectionType_TURN', None)
         pts, kinds = [], []
-        n = path.size() if hasattr(path, 'size') else path.length()
-        for i in range(n):
-            p = path.at(i) if hasattr(path, 'at') else path[i]
-            x = p.getX() if hasattr(p, 'getX') else p.x
-            y = p.getY() if hasattr(p, 'getY') else p.y
-            # les points de virage ont une duree negative dans F2C (convention C++)
+        states = None
+        for getter in (lambda: path.getStates(),
+                       lambda: [path[i] for i in range(path.size())]):
+            try:
+                states = getter()
+                break
+            except Exception:
+                continue
+        if states is None:
+            raise RuntimeError('Impossible de lire les etats du Path F2C')
+        for ps in states:
+            p = ps.point  # F2CPoint
+            pts.append((float(p.getX()), float(p.getY())))
             is_turn = False
             try:
-                is_turn = p.getDuration() < 0
+                is_turn = TURN is not None and ps.type == TURN
             except Exception:
                 pass
-            pts.append((float(x), float(y)))
             kinds.append('transition' if is_turn else 'sweep')
         return pts, kinds
 
