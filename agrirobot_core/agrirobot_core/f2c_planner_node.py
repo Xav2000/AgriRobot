@@ -227,6 +227,8 @@ class F2CPlannerNode(Node):
         if swaths is None:
             self.get_logger().error('Aucune signature de generateSwaths ne convient a cette version F2C')
             return
+        # v1.x : generateBestSwaths renvoie SwathsByCells -> aplatir en Swaths
+        swaths = self._flatten_swaths(swaths)
         n_swaths = swaths.size() if hasattr(swaths, 'size') else len(swaths)
         if n_swaths == 0:
             self.get_logger().error('Aucun swath genere (champ trop etroit pour w=%.2f m ?)'
@@ -340,14 +342,40 @@ class F2CPlannerNode(Node):
             kinds.append('transition' if is_turn else 'sweep')
         return pts, kinds
 
+    def _flatten_swaths(self, swaths):
+        """v1.x : generateBestSwaths renvoie SwathsByCells ; genSortedSwaths/planPath
+        veulent un Swaths plat -> on aplatit via size()/at()/push_back()."""
+        if type(swaths).__name__ == 'Swaths':
+            return swaths
+        SwathsCls = _cls('Swaths')
+        flat = SwathsCls()
+        n = swaths.size() if hasattr(swaths, 'size') else len(swaths)
+        for i in range(n):
+            group = swaths.at(i) if hasattr(swaths, 'at') else swaths[i]
+            m = group.size() if hasattr(group, 'size') else len(group)
+            for j in range(m):
+                flat.push_back(group.at(j) if hasattr(group, 'at') else group[j])
+        return flat
+
+    def _swath_ends(self, s):
+        """Extremites (start, end) d'un Swath, quel que soit le nommage v1.x."""
+        for getter in (lambda: (s.startPoint(), s.endPoint()),
+                       lambda: (s.getStartPoint(), s.getEndPoint()),
+                       lambda: (s.start(), s.end())):
+            try:
+                a, b = getter()
+                return a, b
+            except Exception:
+                continue
+        return None, None
+
     def _extract_swaths(self, swaths):
         """Fallback : extremites des swaths (une ligne = 2 waypoints)."""
         pts, kinds = [], []
         n = swaths.size() if hasattr(swaths, 'size') else len(swaths)
         for i in range(n):
             s = swaths.at(i) if hasattr(swaths, 'at') else swaths[i]
-            start = s.getStartPoint() if hasattr(s, 'getStartPoint') else None
-            end = s.getEndPoint() if hasattr(s, 'getEndPoint') else None
+            start, end = self._swath_ends(s)
             if start is not None:
                 pts.append((float(start.getX()), float(start.getY())))
                 kinds.append('sweep')
