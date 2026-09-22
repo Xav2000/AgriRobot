@@ -194,9 +194,15 @@ class F2CPlannerNode(Node):
         if Cell is not None:
             cell = Cell()
             ok_cell = True
-            for r in rings:
+            for j, r in enumerate(rings):
                 try:
-                    cell.addRing(r)  # 1er = contour, suivants = trous
+                    cell.addRing(j, r)  # addRing(i, ring) : 1er = contour, suivants = trous
+                except TypeError:
+                    try:
+                        cell.addRing(r)
+                    except Exception:
+                        ok_cell = False
+                        break
                 except Exception:
                     ok_cell = False
                     break
@@ -207,9 +213,9 @@ class F2CPlannerNode(Node):
                         added = True
                         break
         if not added:
-            # variante v1.x : Cells.addRing (anneaux dans la meme cellule)
-            for r in rings:
-                cells.addRing(r)
+            # v1.x : Cells.addRing(i, ring) — tous les anneaux de la cellule 0
+            for j, r in enumerate(rings):
+                cells.addRing(j, r)
 
         # --- headlands (N passes) puis zone de balayage
         ConstHL = _cls('HG_Const_gen', 'HG_ConstHL', 'ConstHL')
@@ -230,10 +236,19 @@ class F2CPlannerNode(Node):
         # --- swaths paralleles a la bordure de reference
         BruteForce = _cls('SG_BruteForce', 'BruteForce')
         bf = BruteForce()
-        try:
-            swaths = bf.generateSwaths(ref_angle, work_width, no_hl)
-        except (TypeError, AttributeError):
-            swaths = bf.generateBestSwaths(ref_angle, work_width, no_hl)
+        swaths = None
+        for call in (lambda: bf.generateBestSwaths(work_width, no_hl),   # v1.x : angle optimal auto
+                     lambda: bf.generateSwaths(ref_angle, work_width, no_hl),
+                     lambda: bf.generateBestSwaths(ref_angle, work_width, no_hl),
+                     lambda: bf.generateSwaths(work_width, no_hl)):
+            try:
+                swaths = call()
+                break
+            except Exception:
+                continue
+        if swaths is None:
+            self.get_logger().error('Aucune signature de generateSwaths ne convient a cette version F2C')
+            return
         n_swaths = swaths.size() if hasattr(swaths, 'size') else len(swaths)
         if n_swaths == 0:
             self.get_logger().error('Aucun swath genere (champ trop etroit pour w=%.2f m ?)'
