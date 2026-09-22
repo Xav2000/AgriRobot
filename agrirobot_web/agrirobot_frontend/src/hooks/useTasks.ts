@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
-import ROSLIB from 'roslib';
-import { useRos } from './useRos';
+import { useEffect, useState } from 'react';
+import { useNav2Status } from './useNav2Status';
 
 export interface Task {
   id: string;
@@ -15,27 +14,17 @@ export interface Task {
   totalSteps?: number;
   /** Étape courante */
   currentStep?: number;
-  /** Waypoints reels [lat, lng] du parcours valide (etape 6.4) */
+  /** Waypoints reels [lat, lng] du parcours valide */
   waypoints?: [number, number][];
-  /** Types de segment paralleles aux waypoints (headland/sweep/transition/obstacle) - etape outils */
+  /** Types de segment paralleles aux waypoints */
   waypointKinds?: string[];
-  /**
-   * Etape 6.9 : tâche active (true par defaut) ou désactivée — une tâche
-   * désactivée reste dans la file mais le robot la saute lors de la mission.
-   */
   enabled?: boolean;
-  /** Date (ISO 8601) de la dernière exécution terminée, tenue à jour par le robot */
   lastExecutedAt?: string;
-  /**
-   * Etape 6.9 : planification recurrente (voir lib/schedule.ts pour
-   * le calcul d'echeance). Absente = tache due en permanence
-   * (comportement historique).
-   */
   schedule?: {
-    daysOfWeek: number[];   // 0 = dimanche ... 6 = samedi
-    windowStart: string;    // "HH:MM" ('' = toute la journee)
-    windowEnd: string;      // "HH:MM"
-    intervalDays?: number;  // >= 1 : jours minimum entre deux debuts
+    daysOfWeek: number[];
+    windowStart: string;
+    windowEnd: string;
+    intervalDays?: number;
   };
 }
 
@@ -43,40 +32,48 @@ interface TasksState {
   tasks: Task[];
   /** La tâche actuellement en cours (status === 'running'), ou null */
   currentTask: Task | null;
-  /** Vrai si au moins une tâche est en cours */
+  /** Vrai si au moins une tâche est en cours (running OU paused) */
   hasRunningTask: boolean;
 }
 
+/**
+ * Banc feat/nav2-f2c : la liste de tâches est DERIVEE de l'etat de
+ * mission (/mission/state, publie par mission_supervisor_node). Une
+ * seule mission a la fois = une seule tache "Couverture F2C".
+ * - running / paused -> tache en cours (le robot est occupe)
+ * - done             -> tache terminee
+ * - aborted          -> tache echouee
+ */
 export function useTasks(): TasksState {
-  const { ros, connectionState } = useRos();
+  const { mission } = useNav2Status();
   const [tasks, setTasks] = useState<Task[]>([]);
 
   useEffect(() => {
-    if (!ros || connectionState !== 'connected') return;
+    if (!mission || mission.status === 'idle') {
+      setTasks([]);
+      return;
+    }
+    const total = mission.totalWaypoints || 0;
+    const done = mission.completedWaypoints || 0;
+    const progress = total > 0 ? (done / total) * 100 : 0;
+    let status: Task['status'] = 'running';
+    if (mission.status === 'done') status = 'completed';
+    if (mission.status === 'aborted') status = 'failed';
+    setTasks([{
+      id: mission.task || 'f2c-1',
+      name: 'Couverture F2C',
+      type: 'mowing',
+      status,
+      progress,
+      totalSteps: total,
+      currentStep: done,
+    }]);
+  }, [mission]);
 
-    const tasksTopic = new ROSLIB.Topic({
-      ros,
-      name: '/tasks/list',
-      messageType: 'std_msgs/String',
-    });
-
-    tasksTopic.subscribe((msg: any) => {
-      try {
-        const list = JSON.parse(msg.data);
-        if (Array.isArray(list)) {
-          setTasks(list);
-        }
-      } catch (e) {
-        console.error('Erreur parsing tâches:', e);
-      }
-    });
-
-    return () => tasksTopic.unsubscribe();
-  }, [ros, connectionState]);
-
-  // Calcul de la tâche en cours et état dérivé
   const currentTask = tasks.find(t => t.status === 'running') ?? null;
-  const hasRunningTask = currentTask !== null;
+  const hasRunningTask =
+    currentTask !== null ||
+    (mission !== null && mission.status === 'paused');
 
   return { tasks, currentTask, hasRunningTask };
 }
