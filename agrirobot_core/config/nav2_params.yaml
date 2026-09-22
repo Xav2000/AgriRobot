@@ -3,6 +3,8 @@
 # Pieges documentes corriges d'entree :
 #  - plugin DWB = dwb_core::DWBLocalPlanner (dwa_core::DWAController n'existe pas dans Humble)
 #  - behavior_server AVEC Wait (sinon bt_navigator ne s'active pas, BTs par defaut l'utilisent)
+#  - planner Smac = nav2_smac_planner/SmacPlannerHybrid (SLASH, pas ::)
+#  - velocity_smoother max_decel = valeurs NEGATIVES
 
 bt_navigator:
   ros__parameters:
@@ -152,7 +154,7 @@ velocity_smoother:
     max_velocity: [0.4, 0.0, 1.0]
     min_velocity: [-0.15, 0.0, -1.0]
     max_accel: [0.5, 0.0, 1.0]
-    max_decel: [0.5, 0.0, 1.0]
+    max_decel: [-0.5, 0.0, -1.0]
     odom_topic: /odom
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
