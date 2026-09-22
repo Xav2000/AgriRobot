@@ -175,7 +175,7 @@ class F2CPlannerNode(Node):
 
         # --- construction du champ : anneau externe + trous (S0 dure)
         Point = _cls('Point', 'F2CPoint')
-        Ring = _cls('Ring', 'F2CRing')
+        Ring = _cls('LinearRing', 'Ring', 'F2CRing')
         Cells = _cls('Cells', 'F2CCells')
 
         def make_ring(points_xy):
@@ -184,28 +184,38 @@ class F2CPlannerNode(Node):
                 ring.addPoint(Point(x, y))
             return ring
 
-        cells = Cells()
-        cells.addRing(make_ring(mow_xy))
+        Cell = _cls('Cell', 'F2CCell')
+        cell = Cell()
+        cell.addRing(make_ring(mow_xy))  # 1er anneau = contour externe
         for ring_xy in obs_xy:
             inflated = _inflate_ring(ring_xy, obstacle_margin)  # S1
-            cells.addRing(make_ring(inflated))  # trou interne -> S0
+            cell.addRing(make_ring(inflated))  # anneaux suivants = trous -> S0
+        cells = Cells()
+        cells.add(cell)
 
         # --- headlands (N passes) puis zone de balayage
-        ConstHL = _cls('HG_ConstHL', 'ConstHL')
+        ConstHL = _cls('HG_Const_gen', 'HG_ConstHL', 'ConstHL')
         const_hl = ConstHL()
         headland_width = headland_passes * work_width
         try:
             no_hl = const_hl.generateHeadlands(cells, headland_width)
         except TypeError:
             no_hl = const_hl.generateHeadlandArea(cells, headland_width)
-        if no_hl is None or no_hl.isEmpty() if hasattr(no_hl, 'isEmpty') else not no_hl:
+        try:
+            hl_empty = no_hl is None or no_hl.isEmpty()
+        except Exception:
+            hl_empty = not bool(no_hl)
+        if hl_empty:
             self.get_logger().warning('Headlands vides — generation sur le champ entier')
             no_hl = cells
 
         # --- swaths paralleles a la bordure de reference
         BruteForce = _cls('SG_BruteForce', 'BruteForce')
         bf = BruteForce()
-        swaths = bf.generateSwaths(ref_angle, work_width, no_hl)
+        try:
+            swaths = bf.generateSwaths(ref_angle, work_width, no_hl)
+        except (TypeError, AttributeError):
+            swaths = bf.generateBestSwaths(ref_angle, work_width, no_hl)
         n_swaths = swaths.size() if hasattr(swaths, 'size') else len(swaths)
         if n_swaths == 0:
             self.get_logger().error('Aucun swath genere (champ trop etroit pour w=%.2f m ?)'
@@ -213,7 +223,7 @@ class F2CPlannerNode(Node):
             return
 
         # --- ordre boustrophedon
-        Boustrophedon = _cls('RP_BoustrophedonOrder', 'BoustrophedonOrder')
+        Boustrophedon = _cls('RP_Boustrophedon', 'RP_BoustrophedonOrder', 'BoustrophedonOrder')
         try:
             swaths = Boustrophedon().genSortedSwaths(swaths)
         except Exception as e:  # ordre brut si le tri echoue
@@ -229,8 +239,16 @@ class F2CPlannerNode(Node):
                 if hasattr(robot, setter):
                     getattr(robot, setter)(val)
             PathPlanning = _cls('PP_PathPlanning', 'PathPlanning')
-            RS = _cls('PP_ReedsSheppSolver', 'ReedsSheppSolver')
+            RS = _cls('PP_ReedsSheppCurves', 'PP_ReedsSheppSolver', 'ReedsSheppSolver')
             pp = PathPlanning()
+            for wire in (lambda: pp.setTurningBase(RS()),
+                         lambda: robot.setTurnPointPlanner(RS()),
+                         lambda: robot.setTurnPointPlanner(None)):
+                try:
+                    wire()
+                    break
+                except Exception:
+                    continue
             path = pp.planBestPath(robot, swaths) if hasattr(pp, 'planBestPath') \
                 else pp.searchBestPath(robot, swaths)
             try:
