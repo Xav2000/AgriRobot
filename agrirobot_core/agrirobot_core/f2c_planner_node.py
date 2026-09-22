@@ -240,8 +240,7 @@ class F2CPlannerNode(Node):
             self.get_logger().warning('Tri boustrophedon indisponible (%s) — ordre brut' % e)
 
         # --- anneau de headland TONDU (couverture 100 %)
-        # generateHeadlandSwaths renvoie l anneau en swaths parcourables,
-        # SANS groupement par cellule dans cette version (conteneur plat).
+        # generateHeadlandSwaths renvoie l anneau en swaths parcourables.
         hl_swaths = None
         try:
             hl_swaths = ConstHL().generateHeadlandSwaths(
@@ -384,23 +383,23 @@ class F2CPlannerNode(Node):
             kinds.append('transition' if is_turn else 'sweep')
         return pts, kinds
 
-    def _is_swath(self, obj):
-        """Vrai si obj est un Swath (a des des extremites), faux si c est
-        un groupe (Swaths/SwathsByCells)."""
-        return any(hasattr(obj, m) for m in ('startPoint', 'getStartPoint', 'start'))
-
     def _flatten_swaths(self, swaths):
-        """Normalise en Swaths plat : les generateurs v1.x renvoient soit
-        un conteneur plat (generateHeadlandSwaths), soit un SwathsByCells
-        groupe (generateBestSwaths). On teste la nature du PREMIER
-        element, pas le nom de type (les noms SWIG varient)."""
+        """Normalise en Swaths plat. Detection par le SYSTEME DE TYPES SWIG
+        lui-meme (les noms de types et les attributs varient selon la
+        methode appelante) : on tente push_back(premier element) dans un
+        Swaths de test - si ca passe, le conteneur est deja plat ; si
+        TypeError, les elements sont des groupes -> on aplatit."""
         SwathsCls = _cls('Swaths')
         n = swaths.size() if hasattr(swaths, 'size') else len(swaths)
         if n == 0:
             return swaths
         first = swaths.at(0) if hasattr(swaths, 'at') else swaths[0]
-        if self._is_swath(first):
-            return swaths  # deja plat
+        probe = SwathsCls()
+        try:
+            probe.push_back(first)
+            return swaths  # deja plat : les elements sont des Swath
+        except TypeError:
+            pass
         flat = SwathsCls()
         for i in range(n):
             group = swaths.at(i) if hasattr(swaths, 'at') else swaths[i]
