@@ -70,7 +70,12 @@ class MissionSupervisorNode(Node):
         self.declare_parameter('waypoint_timeout', 90.0)     # s : echec si depasse
         self.declare_parameter('poll_rate', 5.0)            # Hz : suivi de progression
         self.declare_parameter('max_failures', 3)           # echecs consecutifs -> pause
+        self.declare_parameter('min_wp_spacing', 0.5)       # m : filtre waypoints trop serres
+        self.declare_parameter('goal_settle', 0.7)          # s : laisse Nav2 finir avant goal suivant
         self.goal_tol = float(self.get_parameter('goal_tolerance').value)
+        self.min_spacing = float(self.get_parameter('min_wp_spacing').value)
+        self.settle = float(self.get_parameter('goal_settle').value)
+        self.last_reach = None
         self.timeout = float(self.get_parameter('waypoint_timeout').value)
         self.max_failures = int(self.get_parameter('max_failures').value)
 
@@ -112,8 +117,8 @@ class MissionSupervisorNode(Node):
             self.get_logger().error('Plan trop court')
             return
         self.task_id = task.get('id', 'task')
-        self.wps = [to_xy(lat, lng) for lat, lng in wps_latlng]
-        self.kinds = kinds
+        wps = [to_xy(lat, lng) for lat, lng in wps_latlng]
+        self.wps, self.kinds = self._filter_close(wps, kinds)
         self.idx = 0
         self.failures = 0
         self.goal_sent = False
@@ -150,7 +155,13 @@ class MissionSupervisorNode(Node):
     def _tick(self):
         if self.status != RUNNING or self.x is None:
             return
+        now2 = self.get_clock().now()
         if not self.goal_sent:
+            if self.last_reach is not None:
+                since = (now2 - self.last_reach).nanoseconds / 1e9
+                if since < self.settle:
+                    self._publish_state()
+                    return
             self._send_goal()
             return
         # distance au waypoint courant
@@ -164,6 +175,7 @@ class MissionSupervisorNode(Node):
             self.idx += 1
             self.failures = 0
             self.goal_sent = False
+            self.last_reach = now2
             if self.idx >= len(self.wps):
                 self.status = DONE
                 self._set_tool(False)
@@ -204,6 +216,28 @@ class MissionSupervisorNode(Node):
             'Goal %d/%d -> (%.2f, %.2f) [outil %s]' % (
                 self.idx + 1, len(self.wps), tx, ty,
                 'ON' if self.kinds[self.idx] == 'sweep' else 'OFF'))
+
+    def _filter_close(self, wps, kinds):
+        """Filtre les waypoints trop rapproches (< min_spacing) pour eviter les
+        goals perdus par bt_navigator (goals sents pendant l'execution du
+        precedent). Conserve toujours le 1er et le dernier point, et le dernier
+        de chaque segment sweep/transition (extremites utiles)."""
+        if len(wps) < 3:
+            return wps, kinds
+        kept_x, kept_y, kept_k = [wps[0][0]], [wps[0][1]], [kinds[0]]
+        ref = wps[0]
+        for i in range(1, len(wps)):
+            last_of_segment = (i + 1 >= len(wps)) or (kinds[i + 1] != kinds[i])
+            d = math.hypot(wps[i][0] - ref[0], wps[i][1] - ref[1])
+            if d >= self.min_spacing or last_of_segment:
+                kept_x.append(wps[i][0])
+                kept_y.append(wps[i][1])
+                kept_k.append(kinds[i])
+                ref = wps[i]
+        n = len(kept_x)
+        self.get_logger().info(
+            'Filtrage waypoints : %d -> %d (espacement mini %.2f m)' % (len(wps), n, self.min_spacing))
+        return list(zip(kept_x, kept_y)), kept_k
 
     def _set_tool(self, on: bool):
         self.tool_pub.publish(Bool(data=on))
