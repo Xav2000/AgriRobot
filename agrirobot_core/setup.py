@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'nav2_sim_node = agrirobot_core.nav2_sim_node:main',
+            'f2c_planner_node = agrirobot_core.f2c_planner_node:main',
         ],
     },
 )
