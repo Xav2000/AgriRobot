@@ -184,37 +184,15 @@ class F2CPlannerNode(Node):
                 ring.addPoint(Point(x, y))
             return ring
 
-        cells = Cells()
-        rings = [make_ring(mow_xy)]
+        # v1.x (confirme par help()) : Cell.addRing(ring) 1er = contour,
+        # suivants = trous (S0) ; puis Cells.addGeometry(cell)
+        cell = Cell()
+        cell.addRing(make_ring(mow_xy))
         for ring_xy in obs_xy:
             inflated = _inflate_ring(ring_xy, obstacle_margin)  # S1
-            rings.append(make_ring(inflated))  # trous -> S0
-        added = False
-        Cell = _cls('Cell', 'F2CCell')
-        if Cell is not None:
-            cell = Cell()
-            ok_cell = True
-            for j, r in enumerate(rings):
-                try:
-                    cell.addRing(j, r)
-                except TypeError:
-                    try:
-                        cell.addRing(r)
-                    except Exception:
-                        ok_cell = False
-                        break
-                except Exception:
-                    ok_cell = False
-                    break
-            if ok_cell:
-                for m in ('add', 'append', 'addCell', 'push_back'):
-                    if hasattr(cells, m):
-                        getattr(cells, m)(cell)
-                        added = True
-                        break
-        if not added:
-            for j, r in enumerate(rings):
-                cells.addRing(j, r)
+            cell.addRing(make_ring(inflated))  # trou interne -> S0
+        cells = Cells()
+        cells.addGeometry(cell)
 
         # --- headlands (N passes) puis zone de balayage
         ConstHL = _cls('HG_Const_gen', 'HG_ConstHL', 'ConstHL')
@@ -282,7 +260,7 @@ class F2CPlannerNode(Node):
                 except Exception:
                     continue
             path = None
-            for call in (lambda: pp.planPath(robot, swaths),                 # v1.x
+            for call in (lambda: pp.planPath(robot, swaths),
                          lambda: pp.planPath(robot, swaths, True),
                          lambda: pp.planBestPath(robot, swaths),
                          lambda: pp.searchBestPath(robot, swaths)):
