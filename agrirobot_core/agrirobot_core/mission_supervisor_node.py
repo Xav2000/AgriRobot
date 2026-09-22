@@ -66,7 +66,7 @@ def quat_from_yaw(yaw):
 class MissionSupervisorNode(Node):
     def __init__(self):
         super().__init__('mission_supervisor')
-        self.declare_parameter('goal_tolerance', 0.15)      # m : waypoint atteint
+        self.declare_parameter('goal_tolerance', 0.5)       # m : DOIT etre >= xy_goal_tolerance Nav2 (0.40)
         self.declare_parameter('waypoint_timeout', 90.0)     # s : echec si depasse
         self.declare_parameter('poll_rate', 5.0)            # Hz : suivi de progression
         self.declare_parameter('max_failures', 3)           # echecs consecutifs -> pause
