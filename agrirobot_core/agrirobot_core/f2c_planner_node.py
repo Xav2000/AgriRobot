@@ -186,6 +186,7 @@ class F2CPlannerNode(Node):
 
         # v1.x (confirme par help()) : Cell.addRing(ring) 1er = contour,
         # suivants = trous (S0) ; puis Cells.addGeometry(cell)
+        Cell = _cls('Cell', 'F2CCell')
         cell = Cell()
         cell.addRing(make_ring(mow_xy))
         for ring_xy in obs_xy:
