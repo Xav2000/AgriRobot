@@ -254,26 +254,24 @@ class F2CPlannerNode(Node):
             PathPlanning = _cls('PP_PathPlanning', 'PathPlanning')
             RS = _cls('PP_ReedsSheppCurves', 'PP_ReedsSheppSolver', 'ReedsSheppSolver')
             pp = PathPlanning()
-            for wire in (lambda: robot.setTurningPointPlannerObjFunc(RS()),
-                         lambda: pp.setTurningBase(RS()),
-                         lambda: robot.setTurnPointPlanner(RS())):
-                try:
-                    wire()
-                    break
-                except Exception:
-                    continue
-            path = None
+            first_err = None
             for call in (lambda: pp.planPath(robot, swaths),
                          lambda: pp.planPath(robot, swaths, True),
+                         lambda: pp.planPath(robot, swaths, False),
                          lambda: pp.planBestPath(robot, swaths),
                          lambda: pp.searchBestPath(robot, swaths)):
                 try:
                     path = call()
                     break
-                except Exception:
+                except Exception as e:
+                    if first_err is None:
+                        first_err = '%s: %s' % (type(e).__name__, e)
                     continue
+            else:
+                path = None
             if path is None:
-                raise RuntimeError('planPath indisponible sur cette version F2C')
+                self.get_logger().warning('planPath a echoue : %s' % first_err)
+                raise RuntimeError('planPath indisponible : %s' % first_err)
             try:
                 path.populate(200)  # densification (5 mm) pour un suivi propre
             except Exception:
