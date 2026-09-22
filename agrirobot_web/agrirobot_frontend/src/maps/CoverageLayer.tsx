@@ -25,20 +25,20 @@ function filterPlan(waypoints: [number, number][], kinds: string[]) {
   if (waypoints.length < 3) {
     return { wps: waypoints, kinds };
   }
-  const toXY = ([lat, lng]: [number, number]) => [
-    (lng - ORIGIN_LNG) / DEG_PER_METER,
-    (lat - ORIGIN_LAT) / DEG_PER_METER,
+  const toXY = (wp: [number, number]) => [
+    (wp[1] - ORIGIN_LNG) / DEG_PER_METER,
+    (wp[0] - ORIGIN_LAT) / DEG_PER_METER,
   ];
   const kept: number[] = [0];
   let ref = toXY(waypoints[0]);
   for (let i = 1; i < waypoints.length; i++) {
     const lastOfSegment =
       i + 1 >= waypoints.length || kinds[i + 1] !== kinds[i];
-    const [x, y] = toXY(waypoints[i]);
-    const d = Math.hypot(x - ref[0], y - ref[1]);
+    const xy = toXY(waypoints[i]);
+    const d = Math.hypot(xy[0] - ref[0], xy[1] - ref[1]);
     if (d >= MIN_WP_SPACING || lastOfSegment) {
       kept.push(i);
-      ref = [x, y];
+      ref = xy;
     }
   }
   return {
@@ -70,15 +70,14 @@ const COLORS = {
   sweepDone: '#2E7D32',
   sweepTodo: '#4CAF50',
   transitionDone: '#FB8C00',
-  t
-ransitionTodo: '#FFB74D',
+  transitionTodo: '#FFB74D',
   target: '#1976D2',
 };
 
 /**
  * Calque du plan de couverture F2C : passages (vert) et transitions
  * (orange, pointillees). La portion DEJA PARCOURUE (indice du superviseur)
- * est en teinte foncee pleine, le reste en teinte claire pointillee.
+ * est en teinte foncee pleine, le reste en teinte claire.
  * Le waypoint cible courant est marque en bleu.
  */
 const CoverageLayer: React.FC = () => {
@@ -106,12 +105,8 @@ const CoverageLayer: React.FC = () => {
         const isDone = seg.index <= done;
         const color =
           seg.kind === 'sweep'
-            ? isDone
-              ? COLORS.sweepDone
-              : COLORS.sweepTodo
-            : isDone
-              ? COLORS.transitionDone
-              : COLORS.transitionTodo;
+            ? (isDone ? COLORS.sweepDone : COLORS.sweepTodo)
+            : (isDone ? COLORS.transitionDone : COLORS.transitionTodo);
         return (
           <Polyline
             key={i}
