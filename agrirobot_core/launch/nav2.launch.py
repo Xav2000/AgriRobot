@@ -1,9 +1,11 @@
-"""Etape 2 feat/nav2-f2c : banc d'essai Nav2 mapless (simulateur + Nav2 + RViz).
+"""Etape 2 feat/nav2-f2c : banc d'essai Nav2 mapless (simulateur + Nav2 + RViz + rosbridge).
 
 Test :
   ros2 launch agrirobot_core nav2.launch.py
   -> RViz : outil "2D Goal Pose" (bouton en haut), clic sur la carte
   -> le robot atteint le goal (planner REEDS_SHEPP rayon 0.3, DWB suit).
+  -> Frontend : rosbridge expose le ROS en WebSocket ws://localhost:9090
+     (lancer le frontend React, il voit /odom, /coverage/plan, /mission/state).
 
 Pieges corriges ici :
   - params_file BIEN passe au navigation_launch.py de nav2_bringup
@@ -28,6 +30,7 @@ def generate_launch_description():
     nav2_bringup_share = get_package_share_directory('nav2_bringup')
 
     use_rviz = LaunchConfiguration('use_rviz')
+    use_rosbridge = LaunchConfiguration('use_rosbridge')
     start_x = LaunchConfiguration('start_x')
     start_y = LaunchConfiguration('start_y')
     start_yaw_deg = LaunchConfiguration('start_yaw_deg')
@@ -36,6 +39,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('use_rviz', default_value='true'),
+        DeclareLaunchArgument('use_rosbridge', default_value='true'),
         DeclareLaunchArgument('start_x', default_value='0.0'),
         DeclareLaunchArgument('start_y', default_value='0.0'),
         DeclareLaunchArgument('start_yaw_deg', default_value='0.0'),
@@ -66,6 +70,15 @@ def generate_launch_description():
                 'use_respawn': 'False',
                 'container_name': 'nav2_container_rebuild',
             }.items(),
+        ),
+
+        # --- rosbridge : WebSocket pour le frontend React ---
+        Node(
+            package='rosbridge_server',
+            executable='rosbridge_websocket',
+            name='rosbridge_websocket',
+            output='screen',
+            condition=IfCondition(use_rosbridge),
         ),
 
         # --- RViz avec config dediee ---
