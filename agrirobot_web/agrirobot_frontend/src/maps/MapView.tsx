@@ -9,7 +9,7 @@ import { GraphLayer } from './GraphLayer';
 import { StationLayer } from './StationLayer';
 import 'leaflet/dist/leaflet.css';
 
-// Force Leaflet à recalculer sa taille après montage
+// Force Leaflet a recalculer sa taille apres montage
 const ResizeFix: React.FC = () => {
   const map = useMap();
   React.useEffect(() => {
@@ -23,35 +23,26 @@ const ResizeFix: React.FC = () => {
 
 /** Fleche orientee selon le cap du robot (triangle bleu, pointe = avant). */
 function robotIcon(yawDeg: number) {
+  const html = [
+    '<div style="width:28px;height:28px;transform:rotate(' + yawDeg + 'deg);',
+    'transform-origin:center;display:flex;align-items:center;justify-content:center;">',
+    '<svg width="28" height="28" viewBox="0 0 28 28">',
+    '<circle cx="14" cy="14" r="9" fill="#1976D2" fill-opacity="0.25" stroke="#1976D2" stroke-width="2"/>',
+    '<polygon points="14,3 18,14 14,11 10,14" fill="#1976D2"/>',
+    '</svg></div>',
+  ].join('');
   return L.divIcon({
     className: 'robot-arrow',
-    html: `<div style="
-      width: 28px; height: 28px;
-      transform: rotate(${yawDeg}deg);
-      transform-origin: center;
-      display: flex; align-items: center; justify-content: center;
-    ">
-      <svg width="28" height="28" viewBox="0 0 28 28">
-        <circle cx="14" cy="14" r="9" fill="#1976D2" fill-opacity="0.25"
-          stroke="#1976D2" stroke-width="2"/>
-        <polygon points="14,3 18,14 14,11 10,14" fill="#1976D2"/>
-      </svg>
-    </div>`,
+    html,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   });
 }
 
 /**
- * Zoom max 23 pour pouvoir inspecter des lignes de guidage à faible
- * écartement. Au-delà du zoom natif des tuiles (19), Leaflet agrandit la
- * dernière tuile disponible (maxNativeZoom) : le fond devient flou mais
- * les tracés vectoriels (zones, lignes, parcours) restent nets.
- * Deux fonds de carte : imagerie satellite Esri (défaut) et plan OSM.
- *
- * Banc feat/nav2-f2c : le robot vien
-t de /odom (metres, repere local
+ * Banc feat/nav2-f2c : le robot vient de /odom (metres, repere local
  * origine 48.8566/2.3522), le plan de couverture de /coverage/plan.
+ * Zoom max 23 (au-dela des tuiles natives 19, le vectoriel reste net).
  */
 const MapView: React.FC = () => {
   const { pose, mission } = useNav2Status();
@@ -59,6 +50,17 @@ const MapView: React.FC = () => {
   const yawDeg = pose ? (pose.yaw * 180) / Math.PI : 0;
 
   const defaultPosition: [number, number] = [48.8566, 2.3522]; // Paris
+
+  let popupText = 'Robot Agricole';
+  if (robotPosition) {
+    popupText = 'Robot Agricole — ' +
+      robotPosition[0].toFixed(6) + ', ' + robotPosition[1].toFixed(6);
+  }
+  if (mission) {
+    popupText = 'Robot Agricole — Mission ' + mission.status + ' : ' +
+      String(mission.completedWaypoints) + '/' +
+      String(mission.totalWaypoints) + ' waypoints';
+  }
 
   return (
     <MapContainer
@@ -79,32 +81,26 @@ const MapView: React.FC = () => {
         </LayersControl.BaseLayer>
         <LayersControl.BaseLayer name="Plan (OSM)">
           <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{y}/{x}.png"
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             maxNativeZoom={19}
             maxZoom={23}
           />
         </LayersControl.BaseLayer>
       </LayersControl>
-      {/* Zones (polygones) + édition des sommets */}
+      {/* Zones (polygones) + edition des sommets */}
       <ZonesLayer />
-      {/* Paramètres des lignes de guidage (mode worklines) */}
+      {/* Parametres des lignes de guidage (mode worklines) */}
       <WorklinesLayer />
-      {/* Jonctions automatiques du graphe de circulation (étape 6.7) */}
+      {/* Jonctions automatiques du graphe de circulation (etape 6.7) */}
       <GraphLayer />
-      {/* Station de recharge (étape 6.8) */}
+      {/* Station de recharge (etape 6.8) */}
       <StationLayer />
       {/* Plan de couverture F2C + progression (banc nav2-f2c) */}
       <CoverageLayer />
       {robotPosition && (
         <Marker position={robotPosition} icon={robotIcon(yawDeg)}>
-          <Popup>
-            <strong>Robot Agricole</strong><br />
-            {mission
-              ? `Mission: ${mission.status} — ${mi
-ssion.completedWaypoints}/${mission.totalWaypoints} waypoints`
-              : 'Position: ' + robotPosition[0].toFixed(6) + ', ' + robotPosition[1].toFixed(6)}
-          </Popup>
+          <Popup>{popupText}</Popup>
         </Marker>
       )}
     </MapContainer>
