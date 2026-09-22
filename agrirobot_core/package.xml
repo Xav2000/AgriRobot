@@ -15,6 +15,7 @@
   <exec_depend>nav2_bringup</exec_depend>
   <exec_depend>nav2_common</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <exec_depend>python3-fields2cover</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
