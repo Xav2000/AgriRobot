@@ -43,8 +43,7 @@ Installation Fields2Cover (WSL Ubuntu 22.04) :
     pip install fields2cover   # compile depuis source, quelques minutes
 
 Exemple de test (reperes en metres autour de l'origine) :
-    ros2 to
-pic pub -1 /task/command std_msgs/String "{data: '{\"action\": \"generate_coverage\", \"zones\": {\"mow\": [[48.8566, 2.35225], [48.85665, 2.35225], [48.85665, 2.3523], [48.8566, 2.3523]]}, \"params\": {\"workWidth\": 0.5, \"headlandPasses\": 1, \"obstacleMargin\": 0.25}}'}"
+    ros2 topic pub -1 /task/command std_msgs/String "{data: '{\"action\": \"generate_coverage\", \"zones\": {\"mow\": [[48.8566, 2.35225], [48.85665, 2.35225], [48.85665, 2.3523], [48.8566, 2.3523]]}, \"params\": {\"workWidth\": 0.5, \"headlandPasses\": 1, \"obstacleMargin\": 0.25}}'}"
     ros2 topic echo -1 /coverage/plan
 """
 
@@ -109,8 +108,7 @@ def _inflate_ring(ring_xy, margin):
 class F2CPlannerNode(Node):
 
     def __init__(self):
-        super().__in
-it__('f2c_planner_node')
+        super().__init__('f2c_planner_node')
         self.declare_parameter('default_work_width', 0.5)
         self.declare_parameter('default_headland_passes', 2)
         self.declare_parameter('default_obstacle_margin', 0.25)
@@ -155,8 +153,7 @@ it__('f2c_planner_node')
             return
         p = cmd.get('params') or {}
         work_width = float(p.get('workWidth',
-                                 self.get_par
-ameter('default_work_width').value))
+                                 self.get_parameter('default_work_width').value))
         headland_passes = int(p.get('headlandPasses',
                                     self.get_parameter('default_headland_passes').value))
         obstacle_margin = float(p.get('obstacleMargin',
@@ -205,8 +202,7 @@ ameter('default_work_width').value))
         except TypeError:
             no_hl = const_hl.generateHeadlandArea(cells, headland_width)
         try:
-    
-        hl_empty = no_hl is None or no_hl.isEmpty()
+            hl_empty = no_hl is None or no_hl.isEmpty()
         except Exception:
             hl_empty = not bool(no_hl)
         if hl_empty:
@@ -243,13 +239,11 @@ ameter('default_work_width').value))
         except Exception as e:  # ordre brut si le tri echoue
             self.get_logger().warning('Tri boustrophedon indisponible (%s) — ordre brut' % e)
 
-        # --- anneau de headland TONDU (etape couverture 100 %)
+        # --- anneau de headland TONDU (couverture 100 %)
         # generateHeadlandArea ne fait que RESERVER la bande de demi-tour :
-        # sans les swaths de contour, la peripherie n est jamais couverte
-        # (~20-30 % de trou observé). generateHeadlandSwaths (confirme par
-        # help()) renvoie l anneau en swath
-s parcourables, dir_out2in=True :
-        # du bord vers l interieur.
+        # sans les swaths de contour, la peripherie n est jamais couverte.
+        # generateHeadlandSwaths renvoie l anneau en swaths parcourables
+        # (aussi un SwathsByCells en v1.x -> _flatten_swaths OBLIGATOIRE).
         hl_swaths = None
         try:
             hl_swaths = ConstHL().generateHeadlandSwaths(
@@ -265,11 +259,7 @@ s parcourables, dir_out2in=True :
             self.get_logger().warning(
                 'Swaths de contour indisponibles (%s) - couverture sans bande peripherique' % e)
 
-        # fusion : le robot tond D ABORD le tour complet (R1 respecte, les
-        # demi-tours se font dans la bande), puis les allers-retours tries
         if hl_swaths is not None:
-            # v1.x : generateHeadlandSwaths renvoie AUSSI un SwathsByCells
-            # (confirme par le TypeError Swaths_push_back) -> aplatir
             hl_swaths = self._flatten_swaths(hl_swaths)
             try:
                 n_hl = hl_swaths.size()
@@ -296,8 +286,7 @@ s parcourables, dir_out2in=True :
         try:
             Robot = _cls('Robot', 'F2CRobot')
             robot = Robot()
-            for setter, val in (('setWidth
-', 0.4), ('setCovWidth', work_width)):
+            for setter, val in (('setWidth', 0.4), ('setCovWidth', work_width)):
                 if hasattr(robot, setter):
                     getattr(robot, setter)(val)
             PathPlanning = _cls('PP_PathPlanning', 'PathPlanning')
@@ -344,8 +333,7 @@ s parcourables, dir_out2in=True :
                 'stats': {
                     'swaths': n_swaths,
                     'waypoints': len(latlng),
-     
-               'workWidth': work_width,
+                    'workWidth': work_width,
                     'headlandPasses': headland_passes,
                     'obstacleMargin': obstacle_margin,
                     'exclusions': len(obs_xy),
@@ -398,9 +386,8 @@ s parcourables, dir_out2in=True :
             kinds.append('transition' if is_turn else 'sweep')
         return pts, kinds
 
-    def _flatten
-_swaths(self, swaths):
-        """v1.x : generateBestSwaths renvoie SwathsByCells ; on aplatit en Swaths."""
+    def _flatten_swaths(self, swaths):
+        """v1.x : les generateurs renvoient des SwathsByCells ; on aplatit."""
         if type(swaths).__name__ == 'Swaths':
             return swaths
         SwathsCls = _cls('Swaths')
