@@ -1,68 +1,34 @@
 import React from 'react';
-import {
-  Paper, Typography, Box, LinearProgress, Chip, Button, Divider, Stack,
-} from '@mui/material';
-import BatteryFullIcon from '@mui/icons-material/BatteryFull';
-import BatteryAlertIcon from '@mui/icons-material/BatteryAlert';
-import WbSunnyIcon from '@mui/icons-material/WbSunny';
-import UmbrellaIcon from '@mui/icons-material/Umbrella';
-import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
+import { Paper, Typography, Box, Chip } from '@mui/material';
 import BuildIcon from '@mui/icons-material/Build';
-import ROSLIB from 'roslib';
-import { useRos } from '../hooks/useRos';
-import { useRobotStatus } from '../hooks/useRobotStatus';
-import { useTasks } from '../hooks/useTasks';
+import { useNav2Status } from '../hooks/useNav2Status';
 
-const STATUS_INFO: Record<string, { color: 'success' | 'warning' | 'info' | 'error' | 'default'; label: string }> = {
-  working:            { color: 'success', label: 'En travail' },
-  going_to_charge:    { color: 'warning', label: 'En route vers la station' },
-  leaving_charge:     { color: 'warning', label: 'Quitte la station' },
-  returning_to_charge:{ color: 'warning', label: 'Retour à la station' },
-  charging:           { color: 'info',    label: 'En charge' },
-  error:              { color: 'error',   label: 'Erreur' },
-};
-
-const KIND_LABEL: Record<string, string> = {
-  headland: 'contour',
-  sweep: 'passage',
-  obstacle: "contour d'obstacle",
-  transition: 'transition',
-  transit: 'transit',
-  idle: 'inactif',
+const STATUS_INFO: Record<
+  string,
+  { color: 'success' | 'warning' | 'info' | 'error' | 'default'; label: string }
+> = {
+  running: { color: 'success', label: 'En travail' },
+  paused:  { color: 'warning', label: 'En pause' },
+  done:    { color: 'info',    label: 'Mission terminée' },
+  aborted: { color: 'error',   label: 'Mission annulée' },
 };
 
 /**
- * Barre d'état du robot, AU-DESSUS de la carte et ALIGNÉE À GAUCHE
- * avec le bord gauche de la carte :
- * - Batterie + statut du robot, toujours visibles
- * - Actions rapides (station) visibles UNIQUEMENT quand aucune tâche
- *   n'est en cours : le robot doit d'abord être arrêté.
- *   Boutons verts "contained" (même style que "Démarrer les tâches").
+ * Pilule d'etat du robot (banc feat/nav2-f2c) :
+ * - statut de la mission (/mission/state) ;
+ * - outil actif / releve (/tool/state).
+ * Batterie, meteo, RTK et station : non supportes par ce banc -
+ * a recabler quand le materiel reel existera.
  */
 export const RobotStatusBar: React.FC = () => {
-  const { ros, connectionState } = useRos();
-  const { robotStatus } = useRobotStatus();
-  const { hasRunningTask } = useTasks();
+  const { mission, toolActive } = useNav2Status();
 
-  const connected = connectionState === 'connected';
-  const showActions = connected && !hasRunningTask;
+  const statusInfo = mission && STATUS_INFO[mission.status]
+    ? STATUS_INFO[mission.status]
+    : { color: 'default' as const, label: 'Inactif' };
 
-  const sendCommand = (action: string, extra?: Record<string, unknown>) => {
-    if (!ros || !connected) return;
-    const cmdPub = new ROSLIB.Topic({
-      ros,
-      name: '/task/command',
-      messageType: 'std_msgs/String',
-    });
-    cmdPub.publish(new ROSLIB.Message({ data: JSON.stringify({ action, ...extra }) }));
-  };
-
-  const statusInfo = robotStatus
-    ? STATUS_INFO[robotStatus.status] ?? { color: 'default' as const, label: 'Inactif' }
-    : { color: 'default' as const, label: 'Inconnu' };
-
-  const battery = robotStatus?.battery ?? 0;
-  const batteryColor = battery > 50 ? 'success' : battery > 20 ? 'warning' : 'error';
+  const total = mission?.totalWaypoints ?? 0;
+  const done = mission?.completedWaypoints ?? 0;
 
   return (
     <Box sx={{ display: 'flex', flexShrink: 0 }}>
@@ -80,88 +46,19 @@ export const RobotStatusBar: React.FC = () => {
           overflow: 'auto',
         }}
       >
-        {!connected ? (
-          <Chip label="ROS 2 : non connecté" color="error" size="small" />
-        ) : (
-          <>
-            {battery > 20
-              ? <BatteryFullIcon color="success" />
-              : <BatteryAlertIcon color="error" />}
-
-            <Box sx={{ minWidth: 110 }}>
-              <Typography variant="caption" sx={{ lineHeight: 1 }}>
-                Batterie {battery} %
-              </Typography>
-              <LinearProgress
-                variant="determinate"
-                value={battery}
-                color={batteryColor}
-                sx={{ height: 6, borderRadius: 3, mt: 0.5 }}
-              />
-            </Box>
-
-            <Chip color={statusInfo.color} label={statusInfo.label} size="small" />
-
-            {/* Météo (6.10a) : clic = forçage dev beau temps / pluie */}
-            {robotStatus?.weather && (
-              <Chip
-                size="small"
-                icon={robotStatus.weather.condition === 'rain'
-                  ? <UmbrellaIcon /> : <WbSunnyIcon />}
-                color={robotStatus.weather.condition === 'rain' ? 'info' : 'default'}
-                label={(robotStatus.weather.condition === 'rain' ? 'Pluie' : 'Beau temps')
-                  + (robotStatus.weather.source === 'override' ? ' (forcé)' : '')}
-                onClick={() => sendCommand('set_weather_override', { toggle: true })}
-                sx={{ cursor: 'pointer' }}
-              />
-            )}
-
-            {/* RTK (6.10c) : sous l'abri pas de fix (normal) ; hors
-                abri, pas de déplacement sans fix. Clic = forçage dev. */}
-            {robotStatus?.rtk && (
-              <Chip
-                size="small"
-                icon={<SatelliteAltIcon />}
-                color={robotStatus.rtk.fix ? 'success' : 'error'}
-                label={(robotStatus.rtk.fix ? 'RTK' : 'Pas de fix')
-                  + (robotStatus.rtk.source === 'override' ? ' (forcé)' : '')}
-                onClick={() => sendCommand('set_rtk_override', { toggle: true })}
-                sx={{ cursor: 'pointer' }}
-              />
-            )}
-
-            {/* Outil (étape outils) : actif = au travail, relevé = en
-                transit. Comportement (lame vs relevage) réglé dans
-                Réglages. */}
-            {robotStatus?.tool && (
-              <Chip
-                size="small"
-                icon={<BuildIcon />}
-                color={robotStatus.tool.active ? 'success' : 'default'}
-                label={robotStatus.tool.active ? 'Outil actif' : 'Outil relevé'}
-                title={'Segment : ' + (KIND_LABEL[robotStatus.tool.kind] ?? robotStatus.tool.kind)}
-                sx={robotStatus.tool.active ? {} : { opacity: 0.6 }}
-              />
-            )}
-
-            {showActions && (
-              <>
-                <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-                <Stack direction="row" spacing={0.5}>
-                  <Button size="small" variant="contained" color="success" onClick={() => sendCommand('go_to_charge')}>
-                    Aller à la station
-                  </Button>
-                  <Button size="small" variant="contained" color="success" onClick={() => sendCommand('leave_charge')}>
-                    Quitter la station
-                  </Button>
-                  <Button size="small" variant="contained" color="success" onClick={() => sendCommand('return_to_charge')}>
-                    Retour à la station
-                  </Button>
-                </Stack>
-              </>
-            )}
-          </>
+        <Chip color={statusInfo.color} label={statusInfo.label} size="small" />
+        {mission && total > 0 && (
+          <Typography variant="caption" sx={{ lineHeight: 1 }}>
+            {done}/{total} waypoints
+          </Typography>
         )}
+        <Chip
+          size="small"
+          icon={<BuildIcon />}
+          color={toolActive ? 'success' : 'default'}
+          label={toolActive ? 'Outil actif' : 'Outil relevé'}
+          sx={toolActive ? {} : { opacity: 0.6 }}
+        />
       </Paper>
     </Box>
   );
