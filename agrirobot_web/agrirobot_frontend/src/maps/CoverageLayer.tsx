@@ -2,7 +2,6 @@ import React from 'react';
 import { CircleMarker, LayerGroup, Polyline } from 'react-leaflet';
 import {
   DEG_PER_METER,
-  MissionState,
   ORIGIN_LAT,
   ORIGIN_LNG,
   useNav2Status,
@@ -71,7 +70,8 @@ const COLORS = {
   sweepDone: '#2E7D32',
   sweepTodo: '#4CAF50',
   transitionDone: '#FB8C00',
-  transitionTodo: '#FFB74D',
+  t
+ransitionTodo: '#FFB74D',
   target: '#1976D2',
 };
 
