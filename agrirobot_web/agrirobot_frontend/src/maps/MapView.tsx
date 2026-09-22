@@ -1,32 +1,18 @@
-import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, LayersControl } from 'react-leaflet';
+import React from 'react';
+import { MapContainer, Marker, Popup, useMap, LayersControl, TileLayer } from 'react-leaflet';
 import L from 'leaflet';
-import ROSLIB from 'roslib';
-import { useRos } from '../hooks/useRos';
-import { MissionLayer } from './MissionLayer';
+import { useNav2Status, xyToLatLng } from '../hooks/useNav2Status';
+import { CoverageLayer } from './CoverageLayer';
 import { ZonesLayer } from './ZonesLayer';
 import { WorklinesLayer } from './WorklinesLayer';
 import { GraphLayer } from './GraphLayer';
 import { StationLayer } from './StationLayer';
 import 'leaflet/dist/leaflet.css';
 
-// Fix pour les icônes Leaflet (nécessaire avec Webpack)
-const defaultIcon = L.icon({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-});
-
-L.Marker.prototype.options.icon = defaultIcon;
-
 // Force Leaflet à recalculer sa taille après montage
 const ResizeFix: React.FC = () => {
   const map = useMap();
-  useEffect(() => {
+  React.useEffect(() => {
     const t1 = setTimeout(() => map.invalidateSize(), 50);
     const t2 = setTimeout(() => map.invalidateSize(), 200);
     const t3 = setTimeout(() => map.invalidateSize(), 500);
@@ -35,46 +21,48 @@ const ResizeFix: React.FC = () => {
   return null;
 };
 
+/** Fleche orientee selon le cap du robot (triangle bleu, pointe = avant). */
+function robotIcon(yawDeg: number) {
+  return L.divIcon({
+    className: 'robot-arrow',
+    html: `<div style="
+      width: 28px; height: 28px;
+      transform: rotate(${yawDeg}deg);
+      transform-origin: center;
+      display: flex; align-items: center; justify-content: center;
+    ">
+      <svg width="28" height="28" viewBox="0 0 28 28">
+        <circle cx="14" cy="14" r="9" fill="#1976D2" fill-opacity="0.25"
+          stroke="#1976D2" stroke-width="2"/>
+        <polygon points="14,3 18,14 14,11 10,14" fill="#1976D2"/>
+      </svg>
+    </div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  });
+}
+
 /**
  * Zoom max 23 pour pouvoir inspecter des lignes de guidage à faible
  * écartement. Au-delà du zoom natif des tuiles (19), Leaflet agrandit la
  * dernière tuile disponible (maxNativeZoom) : le fond devient flou mais
  * les tracés vectoriels (zones, lignes, parcours) restent nets.
  * Deux fonds de carte : imagerie satellite Esri (défaut) et plan OSM.
- * L'orthophoto IGN française (meilleure résolution) nécessite une clé
- * API Géoportail — option à venir.
+ *
+ * Banc feat/nav2-f2c : le robot vient de /odom (metres, repere local
+ * origine 48.8566/2.3522), le plan de couverture de /coverage/plan.
  */
 const MapView: React.FC = () => {
-  const { ros, connectionState } = useRos();
-  const [robotPosition, setRobotPosition] = useState<[number, number] | null>(null);
+  const { pose, mission } = useNav2Status();
+  const robotPosition = pose ? xyToLatLng(pose.x, pose.y) : null;
+  const yawDeg = pose ? (pose.yaw * 180) / Math.PI : 0;
 
   const defaultPosition: [number, number] = [48.8566, 2.3522]; // Paris
-
-  useEffect(() => {
-    if (!ros || connectionState !== 'connected') return;
-
-    const positionTopic = new ROSLIB.Topic({
-      ros: ros,
-      name: '/robot/position',
-      messageType: 'geometry_msgs/PoseStamped'
-    });
-
-    positionTopic.subscribe((msg: any) => {
-      setRobotPosition([
-        defaultPosition[0] + msg.pose.position.y * 0.00001,
-        defaultPosition[1] + msg.pose.position.x * 0.00001
-      ]);
-    });
-
-    return () => {
-      positionTopic.unsubscribe();
-    };
-  }, [ros, connectionState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <MapContainer
       center={defaultPosition}
-      zoom={18}
+      zoom={19}
       maxZoom={23}
       style={{ position: 'absolute', inset: 0 }}
     >
@@ -90,7 +78,7 @@ const MapView: React.FC = () => {
         </LayersControl.BaseLayer>
         <LayersControl.BaseLayer name="Plan (OSM)">
           <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            url="https://{s}.tile.openstreetmap.org/{z}/{y}/{x}.png"
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             maxNativeZoom={19}
             maxZoom={23}
@@ -105,13 +93,15 @@ const MapView: React.FC = () => {
       <GraphLayer />
       {/* Station de recharge (étape 6.8) */}
       <StationLayer />
-      {/* Parcours de la mission + progression des tâches */}
-      <MissionLayer />
+      {/* Plan de couverture F2C + progression (banc nav2-f2c) */}
+      <CoverageLayer />
       {robotPosition && (
-        <Marker position={robotPosition}>
+        <Marker position={robotPosition} icon={robotIcon(yawDeg)}>
           <Popup>
             <strong>Robot Agricole</strong><br />
-            Position: {robotPosition[0].toFixed(6)}, {robotPosition[1].toFixed(6)}
+            {mission
+              ? `Mission: ${mission.status} — ${mission.completedWaypoints}/${mission.totalWaypoints} waypoints`
+              : 'Position: ' + robotPosition[0].toFixed(6) + ', ' + robotPosition[1].toFixed(6)}
           </Popup>
         </Marker>
       )}
