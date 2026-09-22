@@ -2,7 +2,7 @@ import React from 'react';
 import { MapContainer, Marker, Popup, useMap, LayersControl, TileLayer } from 'react-leaflet';
 import L from 'leaflet';
 import { useNav2Status, xyToLatLng } from '../hooks/useNav2Status';
-import { CoverageLayer } from './CoverageLayer';
+import CoverageLayer from './CoverageLayer';
 import { ZonesLayer } from './ZonesLayer';
 import { WorklinesLayer } from './WorklinesLayer';
 import { GraphLayer } from './GraphLayer';
@@ -49,7 +49,8 @@ function robotIcon(yawDeg: number) {
  * les tracés vectoriels (zones, lignes, parcours) restent nets.
  * Deux fonds de carte : imagerie satellite Esri (défaut) et plan OSM.
  *
- * Banc feat/nav2-f2c : le robot vient de /odom (metres, repere local
+ * Banc feat/nav2-f2c : le robot vien
+t de /odom (metres, repere local
  * origine 48.8566/2.3522), le plan de couverture de /coverage/plan.
  */
 const MapView: React.FC = () => {
@@ -100,7 +101,8 @@ const MapView: React.FC = () => {
           <Popup>
             <strong>Robot Agricole</strong><br />
             {mission
-              ? `Mission: ${mission.status} — ${mission.completedWaypoints}/${mission.totalWaypoints} waypoints`
+              ? `Mission: ${mission.status} — ${mi
+ssion.completedWaypoints}/${mission.totalWaypoints} waypoints`
               : 'Position: ' + robotPosition[0].toFixed(6) + ', ' + robotPosition[1].toFixed(6)}
           </Popup>
         </Marker>
