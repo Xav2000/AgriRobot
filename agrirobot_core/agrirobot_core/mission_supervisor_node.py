@@ -1,42 +1,41 @@
 #!/usr/bin/env python3
-"""Etape 4 feat/nav2-f2c : superviseur de mission Nav2.
+"""Etape 4 feat/nav2-f2c : superviseur de mission Nav2 (client d'action).
 
 ROLE
     Consomme /coverage/plan (sortie du f2c_planner_node) et pilote le robot
-    waypoint par waypoint via /goal_pose (le meme canal que le 2D Goal Pose de
-    RViz, deja valide a l'etape 2). Suit l'avancement via /odom, gere l'etat
-    de l'outil selon waypointKinds, et publie l'avancement pour le frontend.
+    waypoint par waypoint via l'action navigate_to_pose de bt_navigator
+    (retour d'etat fiable : SUCCEEDED / ABORTED / CANCELED — fini les goals
+    publies a l'aveugle sur /goal_pose qui se perdaient pendant une
+    preemption et claquaient le timeout de 90 s).
 
 REGLES
-    - sweep        : outil ON (tondeuse), deplacement a vitesse de travail ;
-    - transition    : outil OFF, deplacement libre ;
-    - un waypoint est ATTEINT quand le robot est a moins de goal_tolerance m ;
-    - timeout par waypoint (parametre) -> echec ; 3 echecs consecutifs -> PAUSE
-      (plus aucun goal envoye jusqu'a une reprise manuelle /task/command
-      {"action": "resume"} ) ;
-    - nav_goal_yaw : oriente le goal vers le waypoint SUIVANT (direction de
-      travail), ce qui evite les rotations inutiles de Nav2.
+    - sweep        : outil ON (tondeuse) ;
+    - transition    : outil OFF ;
+    - un waypoint est valide quand Nav2 repond SUCCEEDED ;
+    - ABORTED -> nouvel essai ; 3 echecs consecutifs -> PAUSE
+      (reprise via /task/command {"action": "resume"}) ;
+    - watchdog : si aucune reponse en waypoint_timeout s -> echec aussi ;
+    - pause/abort -> annulation propre du goal en cours (cancel_goal).
 
-TOPICS
-    Souscrit : /coverage/plan (String JSON), /odom (nav_msgs/Odometry),
-               /task/command (String JSON, actions pause/resume/abort)
-    Publie   : /goal_pose (geometry_msgs/PoseStamped),
-               /tool/state (std_msgs/Bool : True = tondeuse ON),
-               /mission/state (String JSON : progression frontend)
+TOPICS / SERVICES
+    Souscrit : /coverage/plan, /task/command, /odom
+    Publie   : /tool/state (Bool), /mission/state (String JSON)
+    Action   : navigate_to_pose (nav2_msgs/action/NavigateToPose)
 
 TEST (nav2.launch.py actif) :
   ros2 run agrirobot_core mission_supervisor_node
-  # puis generer un plan (f2c_planner_node actif) :
-  ros2 topic pub --once /task/command std_msgs/String "{data: '{\"action\": \"generate_coverage\", ...}'}"
-  # le robot tond le carre tout seul dans RViz ; suivre :
+  # generer un plan, puis :
   ros2 topic echo /mission/state
 """
 import json
 import math
 
 import rclpy
+from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
+from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import Odometry
+from rclpy.action import ActionClient
 from rclpy.node import Node
 from std_msgs.msg import Bool, String
 
@@ -55,49 +54,44 @@ def to_xy(lat, lng):
     return ((lng - ORIGIN_LNG) / DEG_PER_METER, (lat - ORIGIN_LAT) / DEG_PER_METER)
 
 
-def yaw_from(dx, dy):
-    return math.atan2(dy, dx)
-
-
-def quat_from_yaw(yaw):
-    return (0.0, 0.0, math.sin(yaw / 2.0), math.cos(yaw / 2.0))
-
-
 class MissionSupervisorNode(Node):
     def __init__(self):
         super().__init__('mission_supervisor')
-        self.declare_parameter('goal_tolerance', 0.5)       # m : DOIT etre >= xy_goal_tolerance Nav2 (0.40)
-        self.declare_parameter('waypoint_timeout', 90.0)     # s : echec si depasse
-        self.declare_parameter('poll_rate', 5.0)            # Hz : suivi de progression
-        self.declare_parameter('max_failures', 3)           # echecs consecutifs -> pause
+        self.declare_parameter('goal_settle', 0.2)          # s : petite pause entre goals
+        self.declare_parameter('waypoint_timeout', 90.0)     # s : watchdog si Nav2 ne repond pas
+        self.declare_parameter('poll_rate', 5.0)
+        self.declare_parameter('max_failures', 3)
         self.declare_parameter('min_wp_spacing', 0.5)       # m : filtre waypoints trop serres
-        self.declare_parameter('goal_settle', 0.7)          # s : laisse Nav2 finir avant goal suivant
-        self.goal_tol = float(self.get_parameter('goal_tolerance').value)
-        self.min_spacing = float(self.get_parameter('min_wp_spacing').value)
         self.settle = float(self.get_parameter('goal_settle').value)
-        self.last_reach = None
         self.timeout = float(self.get_parameter('waypoint_timeout').value)
         self.max_failures = int(self.get_parameter('max_failures').value)
+        self.min_spacing = float(self.get_parameter('min_wp_spacing').value)
 
         self.plan_sub = self.create_subscription(String, '/coverage/plan', self._on_plan, 10)
         self.cmd_sub = self.create_subscription(String, '/task/command', self._on_command, 10)
         self.odom_sub = self.create_subscription(Odometry, '/odom', self._on_odom, 10)
 
-        self.goal_pub = self.create_publisher(PoseStamped, '/goal_pose', 10)
         self.tool_pub = self.create_publisher(Bool, '/tool/state', 10)
         self.state_pub = self.create_publisher(String, '/mission/state', 10)
+
+        # client d'action NavigateToPose (bt_navigator)
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
 
         # etat de mission
         self.status = IDLE
         self.task_id = None
-        self.wps = []            # [(x, y)] metres
-        self.kinds = []          # ['sweep' | 'transition']
-        self.idx = 0             # waypoint courant
-        self.failures = 0        # echecs consecutifs
+        self.wps = []
+        self.kinds = []
+        self.idx = 0
+        self.failures = 0
         self.goal_sent = False
+        self.goal_done = True          # vrai quand le resultat a ete traite
+        self.goal_ok = False
+        self.goal_handle = None
         self.goal_time = None
+        self.last_reach = None
 
-        self.x = None            # pose odom du robot (metres)
+        self.x = None
         self.y = None
         self.timer = self.create_timer(1.0 / float(self.get_parameter('poll_rate').value), self._tick)
         self.get_logger().info('MissionSupervisor pret : attends un plan sur /coverage/plan')
@@ -122,9 +116,9 @@ class MissionSupervisorNode(Node):
         self.idx = 0
         self.failures = 0
         self.goal_sent = False
+        self.goal_done = True
         self.status = RUNNING
-        self.get_logger().info(
-            'Mission recue (%s) : %d waypoints' % (self.task_id, len(self.wps)))
+        self.get_logger().info('Mission recue (%s) : %d waypoints' % (self.task_id, len(self.wps)))
 
     def _on_command(self, msg):
         try:
@@ -134,15 +128,18 @@ class MissionSupervisorNode(Node):
         action = cmd.get('action')
         if action == 'pause' and self.status == RUNNING:
             self.status = PAUSED
+            self._cancel_goal()
             self._set_tool(False)
             self.get_logger().warn('PAUSE manuelle')
         elif action == 'resume' and self.status == PAUSED:
             self.failures = 0
             self.goal_sent = False
+            self.goal_done = True
             self.status = RUNNING
             self.get_logger().info('REPRISE au waypoint %d' % self.idx)
         elif action == 'abort' and self.status in (RUNNING, PAUSED):
             self.status = ABORTED
+            self._cancel_goal()
             self._set_tool(False)
             self.get_logger().warn('Mission ABORTEE')
 
@@ -153,75 +150,117 @@ class MissionSupervisorNode(Node):
     # ------------------------------------------------------------------ #
     # boucle de pilotage
     def _tick(self):
-        if self.status != RUNNING or self.x is None:
-            return
-        now2 = self.get_clock().now()
-        if not self.goal_sent:
-            if self.last_reach is not None:
-                since = (now2 - self.last_reach).nanoseconds / 1e9
-                if since < self.settle:
-                    self._publish_state()
-                    return
-            self._send_goal()
-            return
-        # distance au waypoint courant
-        tx, ty = self.wps[self.idx]
-        dist = math.hypot(self.x - tx, self.y - ty)
         now = self.get_clock().now()
-        elapsed = (now - self.goal_time).nanoseconds / 1e9 if self.goal_time else 0.0
-        if dist <= self.goal_tol:
-            self.get_logger().info(
-                'Waypoint %d/%d atteint (%s)' % (self.idx + 1, len(self.wps), self.kinds[self.idx]))
-            self.idx += 1
-            self.failures = 0
-            self.goal_sent = False
-            self.last_reach = now2
-            if self.idx >= len(self.wps):
-                self.status = DONE
-                self._set_tool(False)
-                self.get_logger().info('MISSION TERMINEE : %d waypoints' % len(self.wps))
-        elif elapsed > self.timeout:
-            self.failures += 1
-            self.get_logger().warn(
-                'Echec waypoint %d (timeout %.0f s) — %d/%d' % (self.idx + 1, elapsed, self.failures, self.max_failures))
-            self.goal_sent = False  # on retente depuis la pose courante
-            if self.failures >= self.max_failures:
-                self.status = PAUSED
-                self._set_tool(False)
-                self.get_logger().error(
-                    '3 echecs consecutifs — PAUSE (resume via /task/command {"action":"resume"})')
-        self._publish_state()
+        if self.status == RUNNING and self.x is not None:
+            if not self.goal_sent:
+                self._maybe_send_goal(now)
+            elif not self.goal_done:
+                # watchdog : Nav2 muet trop longtemps ?
+                elapsed = (now - self.goal_time).nanoseconds / 1e9 if self.goal_time else 0.0
+                if elapsed > self.timeout:
+                    self.get_logger().warn(
+                        'Watchdog : pas de reponse Nav2 depuis %.0f s' % elapsed)
+                    self._cancel_goal()
+                    self._on_waypoint_result(False)
+            self._publish_state()
 
-    def _send_goal(self):
+    def _maybe_send_goal(self, now):
+        if self.last_reach is not None:
+            since = (now - self.last_reach).nanoseconds / 1e9
+            if since < self.settle:
+                return
+        if not self.nav_client.wait_for_server(timeout_sec=0.1):
+            self.get_logger().warn('bt_navigator indisponible — nouvelle tentative au prochain tick', throttle_duration_sec=5.0)
+            return
         tx, ty = self.wps[self.idx]
-        # orientation : direction vers le waypoint SUIVANT (dernier = garder cap)
+        # orientation : direction vers le waypoint SUIVANT
         if self.idx + 1 < len(self.wps):
             nx, ny = self.wps[self.idx + 1]
-            yaw = yaw_from(nx - tx, ny - ty)
+            yaw = math.atan2(ny - ty, nx - tx)
         else:
             yaw = 0.0
-        qz, qw = math.sin(yaw / 2.0), math.cos(yaw / 2.0)
-        goal = PoseStamped()
-        goal.header.stamp = self.get_clock().now().to_msg()
-        goal.header.frame_id = 'map'
-        goal.pose.position.x = tx
-        goal.pose.position.y = ty
-        goal.pose.orientation.z = qz
-        goal.pose.orientation.w = qw
-        self.goal_pub.publish(goal)
-        self.goal_time = self.get_clock().now()
+        goal = NavigateToPose.Goal()
+        goal.pose.header.stamp = now.to_msg()
+        goal.pose.header.frame_id = 'map'
+        goal.pose.pose.position.x = tx
+        goal.pose.pose.position.y = ty
+        goal.pose.pose.orientation.z = math.sin(yaw / 2.0)
+        goal.pose.pose.orientation.w = math.cos(yaw / 2.0)
+
         self.goal_sent = True
+        self.goal_done = False
+        self.goal_ok = False
+        self.goal_time = now
         self._set_tool(self.kinds[self.idx] == 'sweep')
         self.get_logger().info(
             'Goal %d/%d -> (%.2f, %.2f) [outil %s]' % (
                 self.idx + 1, len(self.wps), tx, ty,
                 'ON' if self.kinds[self.idx] == 'sweep' else 'OFF'))
 
+        future = self.nav_client.send_goal_async(goal, feedback_callback=lambda fb: None)
+        future.add_done_callback(self._goal_response_cb)
+
+    def _goal_response_cb(self, future):
+        try:
+            handle = future.result()
+        except Exception:  # noqa: BLE001
+            handle = None
+        if handle is None or not handle.accepted:
+            self.get_logger().warn('Goal refuse par bt_navigator')
+            self._on_waypoint_result(False)
+            return
+        self.goal_handle = handle
+        result_future = handle.get_result_async()
+        result_future.add_done_callback(self._result_cb)
+
+    def _result_cb(self, future):
+        try:
+            result = future.result()
+            ok = result is not None and result.status == GoalStatus.STATUS_SUCCEEDED
+        except Exception:  # noqa: BLE001
+            ok = False
+        self._on_waypoint_result(ok)
+
+    def _on_waypoint_result(self, ok: bool):
+        if not self.goal_sent:
+            return
+        self.goal_sent = False
+        self.goal_done = True
+        self.goal_handle = None
+        now = self.get_clock().now()
+        if ok:
+            self.get_logger().info(
+                'Waypoint %d/%d atteint (%s)' % (self.idx + 1, len(self.wps), self.kinds[self.idx]))
+            self.idx += 1
+            self.failures = 0
+            self.last_reach = now
+            if self.idx >= len(self.wps):
+                self.status = DONE
+                self._set_tool(False)
+                self.get_logger().info('MISSION TERMINEE : %d waypoints' % len(self.wps))
+        else:
+            self.failures += 1
+            self.get_logger().warn(
+                'Echec waypoint %d — %d/%d' % (self.idx + 1, self.failures, self.max_failures))
+            if self.failures >= self.max_failures:
+                self.status = PAUSED
+                self._set_tool(False)
+                self.get_logger().error(
+                    '3 echecs consecutifs — PAUSE (resume via /task/command {"action":"resume"})')
+
+    def _cancel_goal(self):
+        if self.goal_handle is not None:
+            try:
+                self.goal_handle.cancel_goal_async()
+            except Exception:  # noqa: BLE001
+                pass
+        self.goal_handle = None
+
+    # ------------------------------------------------------------------ #
+    # utilitaires
     def _filter_close(self, wps, kinds):
-        """Filtre les waypoints trop rapproches (< min_spacing) pour eviter les
-        goals perdus par bt_navigator (goals sents pendant l'execution du
-        precedent). Conserve toujours le 1er et le dernier point, et le dernier
-        de chaque segment sweep/transition (extremites utiles)."""
+        """Filtre les waypoints trop rapproches (< min_spacing). Conserve le
+        1er, le dernier, et le dernier de chaque segment sweep/transition."""
         if len(wps) < 3:
             return wps, kinds
         kept_x, kept_y, kept_k = [wps[0][0]], [wps[0][1]], [kinds[0]]
@@ -249,7 +288,7 @@ class MissionSupervisorNode(Node):
             'currentWaypoint': self.idx,
             'totalWaypoints': len(self.wps),
             'completedWaypoints': self.idx,
-            'toolActive': bool(self.kinds[self.idx]) if self.idx < len(self.kinds) else False,
+            'toolActive': (self.idx < len(self.kinds) and self.kinds[self.idx] == 'sweep'),
         }
         self.state_pub.publish(String(data=json.dumps(state)))
 
