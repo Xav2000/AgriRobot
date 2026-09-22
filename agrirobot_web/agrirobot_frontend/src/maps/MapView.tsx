@@ -24,7 +24,7 @@ const ResizeFix: React.FC = () => {
 /** Fleche orientee selon le cap du robot (triangle bleu, pointe = avant). */
 function robotIcon(yawDeg: number) {
   const html = [
-    '<div style="width:28px;height:28px;transform:rotate(' + yawDeg + 'deg);',
+    '<div style="width:28px;height:28px;transform:rotate(' + (90 - yawDeg) + 'deg);',
     'transform-origin:center;display:flex;align-items:center;justify-content:center;">',
     '<svg width="28" height="28" viewBox="0 0 28 28">',
     '<circle cx="14" cy="14" r="9" fill="#1976D2" fill-opacity="0.25" stroke="#1976D2" stroke-width="2"/>',
