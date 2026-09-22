@@ -184,14 +184,32 @@ class F2CPlannerNode(Node):
                 ring.addPoint(Point(x, y))
             return ring
 
-        Cell = _cls('Cell', 'F2CCell')
-        cell = Cell()
-        cell.addRing(make_ring(mow_xy))  # 1er anneau = contour externe
+        cells = Cells()
+        rings = [make_ring(mow_xy)]
         for ring_xy in obs_xy:
             inflated = _inflate_ring(ring_xy, obstacle_margin)  # S1
-            cell.addRing(make_ring(inflated))  # anneaux suivants = trous -> S0
-        cells = Cells()
-        cells.add(cell)
+            rings.append(make_ring(inflated))  # trous -> S0
+        added = False
+        Cell = _cls('Cell', 'F2CCell')
+        if Cell is not None:
+            cell = Cell()
+            ok_cell = True
+            for r in rings:
+                try:
+                    cell.addRing(r)  # 1er = contour, suivants = trous
+                except Exception:
+                    ok_cell = False
+                    break
+            if ok_cell:
+                for m in ('add', 'append', 'addCell', 'push_back'):
+                    if hasattr(cells, m):
+                        getattr(cells, m)(cell)
+                        added = True
+                        break
+        if not added:
+            # variante v1.x : Cells.addRing (anneaux dans la meme cellule)
+            for r in rings:
+                cells.addRing(r)
 
         # --- headlands (N passes) puis zone de balayage
         ConstHL = _cls('HG_Const_gen', 'HG_ConstHL', 'ConstHL')
