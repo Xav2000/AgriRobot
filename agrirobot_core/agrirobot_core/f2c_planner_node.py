@@ -239,6 +239,49 @@ class F2CPlannerNode(Node):
         except Exception as e:  # ordre brut si le tri echoue
             self.get_logger().warning('Tri boustrophedon indisponible (%s) — ordre brut' % e)
 
+        # --- anneau de headland TONDU (etape couverture 100 %)
+        # generateHeadlandArea ne fait que RESERVER la bande de demi-tour :
+        # sans les swaths de contour, la peripherie n est jamais couverte
+        # (~20-30 % de trou observé). generateHeadlandSwaths (confirme par
+        # help()) renvoie l anneau en swaths parcourables, dir_out2in=True :
+        # du bord vers l interieur.
+        hl_swaths = None
+        try:
+            hl_swaths = ConstHL().generateHeadlandSwaths(
+                cells, work_width, headland_passes, True)
+        except TypeError:
+            try:
+                hl_swaths = ConstHL().generateHeadlandSwaths(
+                    cells, work_width, headland_passes)
+            except Exception as e:
+                self.get_logger().warning(
+                    'Swaths de contour indisponibles (%s) - couverture sans bande peripherique' % e)
+        except Exception as e:
+            self.get_logger().warning(
+                'Swaths de contour indisponibles (%s) - couverture sans bande peripherique' % e)
+
+        # fusion : le robot tond D ABORD le tour complet (R1 respecte, les
+        # demi-tours se font dans la bande), puis les allers-retours tries
+        if hl_swaths is not None:
+            try:
+                n_hl = hl_swaths.size()
+            except Exception:
+                n_hl = len(hl_swaths)
+            if n_hl > 0:
+                SwathsCls = _cls('Swaths')
+                combined = SwathsCls()
+                for i in range(n_hl):
+                    combined.push_back(
+                        hl_swaths.at(i) if hasattr(hl_swaths, 'at') else hl_swaths[i])
+                n_cov = swaths.size() if hasattr(swaths, 'size') else len(swaths)
+                for i in range(n_cov):
+                    combined.push_back(
+                        swaths.at(i) if hasattr(swaths, 'at') else swaths[i])
+                swaths = combined
+                n_swaths = n_swaths + n_hl
+                self.get_logger().info(
+                    'Headland : %d swaths de contour ajoutes au chemin' % n_hl)
+
         # --- chemin complet avec virages Reeds-Shepp (Gazonator sait reculer)
         waypoints = []
         kinds = []
