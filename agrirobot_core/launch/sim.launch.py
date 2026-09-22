@@ -43,6 +43,5 @@ def generate_launch_description():
             name='rviz2',
             output='screen',
             condition=IfCondition(use_rviz),
-            arguments=['--dg', 'Grid;TF'],
         ),
     ])

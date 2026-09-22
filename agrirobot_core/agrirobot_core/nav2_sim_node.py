@@ -13,7 +13,8 @@ Test (launch actif) :
 import math
 
 import rclpy
-from geometry_msgs.msg import Twist, Odometry, TransformStamped
+from geometry_msgs.msg import Twist, TransformStamped
+from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
