@@ -184,8 +184,6 @@ class F2CPlannerNode(Node):
                 ring.addPoint(Point(x, y))
             return ring
 
-        # v1.x (confirme par help()) : Cell.addRing(ring) 1er = contour,
-        # suivants = trous (S0) ; puis Cells.addGeometry(cell)
         Cell = _cls('Cell', 'F2CCell')
         cell = Cell()
         cell.addRing(make_ring(mow_xy))
@@ -227,7 +225,6 @@ class F2CPlannerNode(Node):
         if swaths is None:
             self.get_logger().error('Aucune signature de generateSwaths ne convient a cette version F2C')
             return
-        # v1.x : generateBestSwaths renvoie SwathsByCells -> aplatir en Swaths
         swaths = self._flatten_swaths(swaths)
         n_swaths = swaths.size() if hasattr(swaths, 'size') else len(swaths)
         if n_swaths == 0:
@@ -255,9 +252,8 @@ class F2CPlannerNode(Node):
             RS = _cls('PP_ReedsSheppCurves', 'PP_ReedsSheppSolver', 'ReedsSheppSolver')
             pp = PathPlanning()
             first_err = None
-            for call in (lambda: pp.planPath(robot, swaths),
-                         lambda: pp.planPath(robot, swaths, True),
-                         lambda: pp.planPath(robot, swaths, False),
+            for call in (lambda: pp.planPath(robot, swaths, RS()),   # v1.x confirme
+                         lambda: pp.planPath(robot, swaths, RS()),
                          lambda: pp.planBestPath(robot, swaths),
                          lambda: pp.searchBestPath(robot, swaths)):
                 try:
@@ -341,8 +337,7 @@ class F2CPlannerNode(Node):
         return pts, kinds
 
     def _flatten_swaths(self, swaths):
-        """v1.x : generateBestSwaths renvoie SwathsByCells ; genSortedSwaths/planPath
-        veulent un Swaths plat -> on aplatit via size()/at()/push_back()."""
+        """v1.x : generateBestSwaths renvoie SwathsByCells ; on aplatit en Swaths."""
         if type(swaths).__name__ == 'Swaths':
             return swaths
         SwathsCls = _cls('Swaths')
