@@ -240,10 +240,8 @@ class F2CPlannerNode(Node):
             self.get_logger().warning('Tri boustrophedon indisponible (%s) — ordre brut' % e)
 
         # --- anneau de headland TONDU (couverture 100 %)
-        # generateHeadlandArea ne fait que RESERVER la bande de demi-tour :
-        # sans les swaths de contour, la peripherie n est jamais couverte.
-        # generateHeadlandSwaths renvoie l anneau en swaths parcourables
-        # (aussi un SwathsByCells en v1.x -> _flatten_swaths OBLIGATOIRE).
+        # generateHeadlandSwaths renvoie l anneau en swaths parcourables,
+        # SANS groupement par cellule dans cette version (conteneur plat).
         hl_swaths = None
         try:
             hl_swaths = ConstHL().generateHeadlandSwaths(
@@ -386,13 +384,24 @@ class F2CPlannerNode(Node):
             kinds.append('transition' if is_turn else 'sweep')
         return pts, kinds
 
+    def _is_swath(self, obj):
+        """Vrai si obj est un Swath (a des des extremites), faux si c est
+        un groupe (Swaths/SwathsByCells)."""
+        return any(hasattr(obj, m) for m in ('startPoint', 'getStartPoint', 'start'))
+
     def _flatten_swaths(self, swaths):
-        """v1.x : les generateurs renvoient des SwathsByCells ; on aplatit."""
-        if type(swaths).__name__ == 'Swaths':
-            return swaths
+        """Normalise en Swaths plat : les generateurs v1.x renvoient soit
+        un conteneur plat (generateHeadlandSwaths), soit un SwathsByCells
+        groupe (generateBestSwaths). On teste la nature du PREMIER
+        element, pas le nom de type (les noms SWIG varient)."""
         SwathsCls = _cls('Swaths')
-        flat = SwathsCls()
         n = swaths.size() if hasattr(swaths, 'size') else len(swaths)
+        if n == 0:
+            return swaths
+        first = swaths.at(0) if hasattr(swaths, 'at') else swaths[0]
+        if self._is_swath(first):
+            return swaths  # deja plat
+        flat = SwathsCls()
         for i in range(n):
             group = swaths.at(i) if hasattr(swaths, 'at') else swaths[i]
             m = group.size() if hasattr(group, 'size') else len(group)
