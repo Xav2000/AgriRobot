@@ -196,7 +196,7 @@ class F2CPlannerNode(Node):
             ok_cell = True
             for j, r in enumerate(rings):
                 try:
-                    cell.addRing(j, r)  # addRing(i, ring) : 1er = contour, suivants = trous
+                    cell.addRing(j, r)
                 except TypeError:
                     try:
                         cell.addRing(r)
@@ -213,7 +213,6 @@ class F2CPlannerNode(Node):
                         added = True
                         break
         if not added:
-            # v1.x : Cells.addRing(i, ring) — tous les anneaux de la cellule 0
             for j, r in enumerate(rings):
                 cells.addRing(j, r)
 
@@ -237,7 +236,7 @@ class F2CPlannerNode(Node):
         BruteForce = _cls('SG_BruteForce', 'BruteForce')
         bf = BruteForce()
         swaths = None
-        for call in (lambda: bf.generateBestSwaths(work_width, no_hl),   # v1.x : angle optimal auto
+        for call in (lambda: bf.generateBestSwaths(work_width, no_hl),
                      lambda: bf.generateSwaths(ref_angle, work_width, no_hl),
                      lambda: bf.generateBestSwaths(ref_angle, work_width, no_hl),
                      lambda: bf.generateSwaths(work_width, no_hl)):
@@ -274,16 +273,26 @@ class F2CPlannerNode(Node):
             PathPlanning = _cls('PP_PathPlanning', 'PathPlanning')
             RS = _cls('PP_ReedsSheppCurves', 'PP_ReedsSheppSolver', 'ReedsSheppSolver')
             pp = PathPlanning()
-            for wire in (lambda: pp.setTurningBase(RS()),
-                         lambda: robot.setTurnPointPlanner(RS()),
-                         lambda: robot.setTurnPointPlanner(None)):
+            for wire in (lambda: robot.setTurningPointPlannerObjFunc(RS()),
+                         lambda: pp.setTurningBase(RS()),
+                         lambda: robot.setTurnPointPlanner(RS())):
                 try:
                     wire()
                     break
                 except Exception:
                     continue
-            path = pp.planBestPath(robot, swaths) if hasattr(pp, 'planBestPath') \
-                else pp.searchBestPath(robot, swaths)
+            path = None
+            for call in (lambda: pp.planPath(robot, swaths),                 # v1.x
+                         lambda: pp.planPath(robot, swaths, True),
+                         lambda: pp.planBestPath(robot, swaths),
+                         lambda: pp.searchBestPath(robot, swaths)):
+                try:
+                    path = call()
+                    break
+                except Exception:
+                    continue
+            if path is None:
+                raise RuntimeError('planPath indisponible sur cette version F2C')
             try:
                 path.populate(200)  # densification (5 mm) pour un suivi propre
             except Exception:
