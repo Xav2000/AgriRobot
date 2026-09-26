@@ -60,8 +60,7 @@ export function useNav2Status(): {
 
     // --- pose robot : /odom (nav_msgs/Odometry, metres) ---
     const odomTopic = new ROSLIB.Topic({
-      ro
-s,
+      ros,
       name: '/odom',
       messageType: 'nav_msgs/Odometry',
     });
