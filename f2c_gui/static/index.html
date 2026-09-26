@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Essai F2C - Lignes de guidage</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="layout">
+  <aside id="panel">
+    <h1>Essai F2C</h1>
+    <p class="sub">Generation de lignes de guidage (pipeline canonique fields2cover)</p>
+
+    <h2>Parcelle</h2>
+    <div class="row">
+      <button id="btn-clear">Effacer</button>
+      <button id="btn-square">Parcelle test 10x10</button>
+    </div>
+    <p class="hint">Cliquez sur la carte pour poser les sommets (ordre horaire ou anti-horaire).</p>
+
+    <h2>Options</h2>
+    <label>Largeur de travail (m)
+      <input type="number" id="opt-width" value="0.5" min="0.05" step="0.05">
+    </label>
+    <label>Contours (headlands)
+      <input type="number" id="opt-passes" value="1" min="0" max="8" step="1">
+    </label>
+    <label>Angle des passes (deg)
+      <input type="number" id="opt-angle" value="90" min="0" max="360" step="1">
+    </label>
+    <label>Ordre des passes
+      <select id="opt-rp">
+        <option value="base">Base (defaut)</option>
+        <option value="boustrophedon">Boustrophedon</option>
+        <option value="snake">Serpent</option>
+        <option value="spiral">Spirale</option>
+      </select>
+    </label>
+    <label>Virages
+      <select id="opt-pp">
+        <option value="reeds_shepp">Reeds-Shepp (reste dans la parcelle)</option>
+        <option value="reeds_shepp_hc">Reeds-Shepp + hybrid curve</option>
+        <option value="dubins">Dubins (marche avant seule - deborde)</option>
+        <option value="dubins_cc">Dubins + continuous curvature</option>
+      </select>
+    </label>
+    <label>Rayon de giration (m)
+      <input type="number" id="opt-radius" value="1.0" min="0.1" step="0.1">
+    </label>
+
+    <div class="row">
+      <button id="btn-generate" class="primary">Generer</button>
+      <button id="btn-validate" class="success" disabled>Valider</button>
+    </div>
+
+    <div id="message"></div>
+    <div id="stats"></div>
+    <p class="hint">Valider verrouille le plan dans validated_plan.json (persistance hors navigateur).</p>
+  </aside>
+
+  <main id="map-wrap">
+    <canvas id="map"></canvas>
+    <div id="legend">
+      <span><i class="sw swath"></i> passes</span>
+      <span><i class="sw turn"></i> virages</span>
+      <span><i class="sw vertex"></i> sommets</span>
+    </div>
+  </main>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
