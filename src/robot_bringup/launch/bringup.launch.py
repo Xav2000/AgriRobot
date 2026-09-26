@@ -4,18 +4,19 @@
 
 Demarre : robot_node + navigation Nav2 + rosbridge (WebSocket :9090).
 """
+import os
+
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription
-from launch.launch_description_sources import PythonLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 
-import os
 from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
-    bringup_dir = get_package_share_directory('robot_bringup')
-    robot_yaml = os.path.join(bringup_dir, 'config', 'robot.yaml')
+    robot_yaml = os.path.join(
+        get_package_share_directory('robot_bringup'), 'config', 'robot.yaml')
 
     robot_node = Node(
         package='robot_bringup',
@@ -27,12 +28,10 @@ def generate_launch_description():
 
     # Navigation Nav2 (package robot_navigation)
     nav_launch = IncludeLaunchDescription(
-        PythonLaunchDescription(
-            os.path.join(
-                get_package_share_directory('robot_navigation'),
-                'launch', 'navigation.launch.py',
-            )
-        )
+        PythonLaunchDescriptionSource(os.path.join(
+            get_package_share_directory('robot_navigation'),
+            'launch', 'navigation.launch.py',
+        ))
     )
 
     # rosbridge : pont WebSocket pour la future interface graphique
