@@ -39,7 +39,9 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from std_msgs.msg import Bool, String
 
-from agrirobot_core.geo import ORIGIN_LAT, ORIGIN_LNG, DEG_PER_METER
+ORIGIN_LAT = 48.8566
+ORIGIN_LNG = 2.3522
+DEG_PER_METER = 1e-5
 
 
 def latlng_to_xy(lat, lng):
