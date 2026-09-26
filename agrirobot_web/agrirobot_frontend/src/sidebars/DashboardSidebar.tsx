@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Card, CardContent, Typography, Stack, Button, Slider, Switch,
-  FormControlLabel, MenuItem, TextField, Divider, Box,
+  FormControlLabel, MenuItem, TextField, Divider,
 } from '@mui/material';
 import MapIcon from '@mui/icons-material/Map';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -63,7 +63,8 @@ const PP_LABELS: Record<string, string> = {
 /**
  * Sidebar Dashboard (banc feat/nav2-f2c, etape options F2C) :
  * - panneau de generation : TOUS les curseurs F2C reglables, bouton
- *   "Generer l'apercu" (le plan s'affiche, le robot ne bouge PAS) ;
+ *   "Generer l'apercu" (le plan s'affiche, l
+e robot ne bouge PAS) ;
  * - "Tondre les zones" : genere puis envoie start_mission au superviseur ;
  * - controle mission : Pause / Reprendre / Arreter ;
  * - si un plan est en attente : bouton "Lancer la mission".
@@ -122,7 +123,8 @@ const DashboardSidebar: React.FC = () => {
   };
 
   const handleMow = () => {
-    const payload = buildPayload();
+    const payload = 
+buildPayload();
     if (!payload) return;
     sendCommand(payload);
     // laisser le superviseur stocker le plan (pending) puis partir
@@ -176,7 +178,8 @@ const DashboardSidebar: React.FC = () => {
           <TextField
             select fullWidth size="small" margin="dense"
             label="Angle des passes"
-            value={opts.refAngleDeg === null ? 'auto' : String(opts.refAngleDeg)}
+            value={opts.refAngleDeg === null ? 'aut
+o' : String(opts.refAngleDeg)}
             onChange={e => {
               const v = e.target.value;
               setOpts({ ...opts, refAngleDeg: v === 'auto' ? null : Number(v) });
@@ -230,7 +233,8 @@ const DashboardSidebar: React.FC = () => {
             Rayon de braquage : {opts.minTurningRadius.toFixed(2)} m
           </Typography>
           <Slider
-            value={opts.minTurningRadius}
+            value={opts.minTurningRad
+ius}
             onChange={(_, v) => setOpts({ ...opts, minTurningRadius: v as number })}
             min={0.2} max={1.0} step={0.05} size="small"
             disabled={disabled} valueLabelDisplay="auto"
@@ -291,7 +295,8 @@ const DashboardSidebar: React.FC = () => {
                 variant="contained"
                 color="warning"
                 startIcon={<PauseIcon />}
-                onClick={() => sendCommand({ action: 'pause' })}
+                onClick={() => 
+sendCommand({ action: 'pause' })}
                 disabled={disabled}
                 fullWidth
               >
