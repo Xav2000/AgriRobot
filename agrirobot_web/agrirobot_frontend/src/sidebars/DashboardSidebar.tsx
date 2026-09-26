@@ -63,8 +63,7 @@ const PP_LABELS: Record<string, string> = {
 /**
  * Sidebar Dashboard (banc feat/nav2-f2c, etape options F2C) :
  * - panneau de generation : TOUS les curseurs F2C reglables, bouton
- *   "Generer l'apercu" (le plan s'affiche, l
-e robot ne bouge PAS) ;
+ *   "Apercu" (le plan s affiche, le robot ne bouge PAS) ;
  * - "Tondre les zones" : genere puis envoie start_mission au superviseur ;
  * - controle mission : Pause / Reprendre / Arreter ;
  * - si un plan est en attente : bouton "Lancer la mission".
@@ -95,7 +94,7 @@ const DashboardSidebar: React.FC = () => {
   const buildPayload = () => {
     const mowZone = zones.find(z => z.type === 'mow' && z.points.length >= 3);
     if (!mowZone) {
-      window.alert('Dessine d\'abord une zone de tonte (mode Zones, bouton vert).');
+      window.alert("Dessine d'abord une zone de tonte (mode Zones, bouton vert).");
       return null;
     }
     const exclusions = zones
@@ -123,17 +122,14 @@ const DashboardSidebar: React.FC = () => {
   };
 
   const handleMow = () => {
-    const payload = 
-buildPayload();
+    const payload = buildPayload();
     if (!payload) return;
     sendCommand(payload);
-    // laisser le superviseur stocker le plan (pending) puis partir
     setTimeout(() => sendCommand({ action: 'start_mission' }), 800);
   };
 
   return (
     <>
-      {/* Generation - toutes les options F2C */}
       <Card>
         <CardContent>
           <Typography variant="subtitle2" gutterBottom>
@@ -178,8 +174,7 @@ buildPayload();
           <TextField
             select fullWidth size="small" margin="dense"
             label="Angle des passes"
-            value={opts.refAngleDeg === null ? 'aut
-o' : String(opts.refAngleDeg)}
+            value={opts.refAngleDeg === null ? 'auto' : String(opts.refAngleDeg)}
             onChange={e => {
               const v = e.target.value;
               setOpts({ ...opts, refAngleDeg: v === 'auto' ? null : Number(v) });
@@ -233,8 +228,7 @@ o' : String(opts.refAngleDeg)}
             Rayon de braquage : {opts.minTurningRadius.toFixed(2)} m
           </Typography>
           <Slider
-            value={opts.minTurningRad
-ius}
+            value={opts.minTurningRadius}
             onChange={(_, v) => setOpts({ ...opts, minTurningRadius: v as number })}
             min={0.2} max={1.0} step={0.05} size="small"
             disabled={disabled} valueLabelDisplay="auto"
@@ -268,10 +262,8 @@ ius}
         </CardContent>
       </Card>
 
-      {/* Tache en cours avec progression */}
       <CurrentTaskCard />
 
-      {/* Controle de la mission */}
       <Card>
         <CardContent>
           <Typography variant="subtitle2" gutterBottom>
@@ -295,8 +287,7 @@ ius}
                 variant="contained"
                 color="warning"
                 startIcon={<PauseIcon />}
-                onClick={() => 
-sendCommand({ action: 'pause' })}
+                onClick={() => sendCommand({ action: 'pause' })}
                 disabled={disabled}
                 fullWidth
               >
@@ -319,7 +310,6 @@ sendCommand({ action: 'pause' })}
         </CardContent>
       </Card>
 
-      {/* Edition des zones */}
       <Card>
         <CardContent>
           <Button
