@@ -3,7 +3,7 @@
   <name>robot_navigation</name>
   <version>0.1.0</version>
   <description>Configuration Nav2 du robot agricole v2.</description>
-  <maintainer email="xav@localhost">Xavier Rossignol</maintainer>
+  <maintainer email="xav2000@users.noreply.github.com">Xavier Rossignol</maintainer>
   <license>Apache-2.0</license>
 
   <exec_depend>nav2_bringup</exec_depend>
