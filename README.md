@@ -1,69 +1,44 @@
-# AgriRobot - Application de gestion pour robots agricoles
+# Robot agricole v2 — base ROS 2
 
-## Description
-Application moderne pour la gestion de robots agricoles, inspiree d'OpenMower. Permet de gerer les champs, zones, lignes de travail et taches via une interface web reactive.
+Fondation ROS 2 (reprise a zero) du robot agricole v2. Interface graphique
+multi-robots (tondeuse, travail du sol sur planches maraicheres) pilotant
+le robot via Nav2.
 
-## Architecture
-- Backend: ROS 2 Humble (Python)
-- Frontend: React + TypeScript + Leaflet
-- Communication: rosbridge_suite (WebSocket)
+## Organisation (validee par Xavier, 26 sept. 2026)
 
-## Structure du projet
-AgriRobot/
-├── agrirobot_core/          # Package ROS 2 (logique metier)
-│   ├── agrirobot_core/
-│   │   ├── __init__.py
-│   │   └── agrirobot_node.py
-│   ├── package.xml
-│   └── setup.py
-├── agrirobot_web/           # Frontend React
-│   └── agrirobot_frontend/
-│       ├── public/
-│       └── src/
-│           ├── components/
-│           ├── maps/
-│           ├── tasks/
-│           ├── robot/
-│           ├── App.tsx
-│           └── index.tsx
-├── resources/               # Cartes, images, etc.
-├── docs/                    # Documentation
-└── README.md
+    src/
+    |- robot_interfaces/    Messages custom (RobotState, DockingStation, WorkPath)
+    |- robot_bringup/      Noeud principal + launch (robot + Nav2 + rosbridge) + config
+    |- robot_navigation/   Configuration Nav2 uniquement (launch + params)
 
-## Prerequis
-- Ubuntu 22.04 (WSL 2)
-- ROS 2 Humble
-- Node.js 18+
-- Python 3.8+
+Prefixe des topics : /robot/... (ex. /robot/state, /robot/docking_station).
 
-## Installation
-### Backend (ROS 2)
-```bash
-# Installer les dependances
-sudo apt install -y ros-humble-rosbridge-suite
+## Branches
+- feat/ros2-base          : cette fondation
+- feat/f2c-lignes         : generation des lignes de guidage via Fields2Cover
+- feat/generation-manuelle: generation manuelle des lignes
 
-# Builder le workspace
-cd ~/agrirobot_ws
-colcon build
-source install/setup.bash
+## Deploiement (WSL 2 + VS Code)
 
-# Lancer rosbridge
-ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+    # Workspace colcon
+    mkdir -p ~/agrirobot_v2_ws/src
+    cd ~/agrirobot_v2_ws/src
+    git clone -b feat/ros2-base git@github.com:Xav2000/AgriRobot.git AgriRobot
+    cd ~/agrirobot_v2_ws
+    rosdep install --from-paths src --ignore-src -r -y
+    colcon build --symlink-install
+    source install/setup.bash
 
-# Lancer le noeud AgriRobot
-ros2 run agrirobot_core agrirobot_node
-```
+    # Lancer (robot + Nav2 + rosbridge sur ws://localhost:9090)
+    ros2 launch robot_bringup bringup.launch.py
 
-### Frontend (React)
-```bash
-cd agrirobot_web/agrirobot_frontend
-npm install
-npm start
-```
+    # Verifier
+    ros2 topic echo /robot/state
+    ros2 topic echo /robot/docking_station
+    ros2 topic pub /robot/cmd std_msgs/String "data: 'start'" -1
 
-## Acces
-- Frontend: http://localhost:3000
-- rosbridge: ws://localhost:9090
-
-## Licence
-Apache License 2.0
+## Etat (squelette)
+- robot_node : etat robot + station SIMULES, commandes start/stop/dock/charge_on/off.
+- Nav2 : squelette standard (carte attendue, a adapter).
+- rosbridge : pret pour la future interface graphique.
+- Generation de lignes : branches feat/f2c-lignes / feat/generation-manuelle.

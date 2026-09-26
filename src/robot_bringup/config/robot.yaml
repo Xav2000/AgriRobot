@@ -1,0 +1,10 @@
+# Parametres du noeud principal (robot_node)
+robot_node:
+  ros__parameters:
+    robot_id: "robot_1"
+    publish_hz: 2.0
+
+    # Emplacement de la station de recharge (frame odom au depart)
+    station:
+      x: 0.0
+      y: 0.0
