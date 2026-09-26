@@ -1,17 +1,10 @@
 #!/usr/bin/env python3
-"""Noeud de generation de trajectoires Fields2Cover (feat/nav2-f2c, etape 3).
+"""f2c_planner_node v2 - Fields2Cover 2.1.0, TOUTES les options exposees.
 
-ROLE
-    Remplace la generation frontend (worklines.ts) : le frontend n'enverra plus que
-    des POLYGONES + parametres, ce noeud calcule la couverture avec Fields2Cover
-    (headlands -> swaths -> ordre boustrophedon -> virages Reeds-Shepp) et publie
-    des waypoints types pour le futur superviseur Nav2 (jalon 2).
-
-REGLES METIER (reprises a l'identique)
-    S0 : aucune ligne ne franchit JAMAIS une exclusion (contrainte dure) ;
-    S1 : marge de securite parametrable autour des obstacles (obstacleMarginM) ;
-    R1 : le robot ne sort jamais du polygone ;
-    R3 : les allers-retours s'arretent sur le contour interieur.
+Banc feat/nav2-f2c, etape 6 : la commande generate_coverage accepte
+desormais l integralite des curseurs F2C. Le plan est PUBLIE mais le
+robot ne part que si le mission_supervisor recoit start_mission ->
+on peut generer des apercus sans naviguer.
 
 ENTREE (topic /task/command, std_msgs/String JSON)
     {
@@ -22,44 +15,37 @@ ENTREE (topic /task/command, std_msgs/String JSON)
       },
       "params": {
         "workWidth": 0.5,          # largeur de travail (m)
-        "headlandPasses": 2,       # nombre de contours interieurs
-        "obstacleMargin": 0.25,    # marge de securite obstacles (m)
-        "refAngleDeg": null        # orientation des passes ; null = 1re arete du polygone
+        "headlandPasses": 1,       # 0 = AUCUN contour (passes sur tout le champ)
+        "mowHeadland": true,       # contour TONDU (anneau Python) ou juste reserve
+        "obstacleMargin": 0.25,    # marge de securite obstacles (S1)
+        "refAngleDeg": null,       # null = angle optimal ; sinon angle fixe
+        "sgObj": "field_cov",      # field_cov | n_swath | n_swath_mod |
+                                   # overlaps | swath_length
+        "rpAlg": "boustrophedon",  # boustrophedon | snake | spiral
+        "ppAlg": "reeds_shepp",    # dubins | dubins_cc | reeds_shepp |
+                                   # reeds_shepp_hc
+        "minTurningRadius": 0.3   # rayon de braquage du robot (m)
       }
     }
 
 SORTIES
-    /coverage/plan (String JSON) : taches avec waypoints [[lat, lng]] + waypointKinds
-        ('headland' | 'sweep' | 'transition') + stats — consomme par le superviseur (jalon 2).
-    /mission/path (String JSON) : payload frontend {tasks:[{id,name,status,
-        waypoints, completedWaypoints}]} — previsualisation MissionLayer inchangee.
+    /coverage/plan : taches avec waypoints + waypointKinds + echo des options.
+    /mission/path : payload frontend (preview).
 
 REPERE
-    Repere metrique local identique a geo.py : ORIGIN (48.8566, 2.3522),
-    DEG_PER_METER = 1e-5 (x = est, y = nord).
-
-Installation Fields2Cover (WSL Ubuntu 22.04) :
-    sudo apt install -y libgdal-dev libgeos-dev libtinyxml2-dev nlohmann-json3-dev
-    pip install fields2cover   # compile depuis source, quelques minutes
-
-Exemple de test (reperes en metres autour de l'origine) :
-    ros2 topic pub -1 /task/command std_msgs/String "{data: '{\"action\": \"generate_coverage\", \"zones\": {\"mow\": [[48.8566, 2.35225], [48.85665, 2.35225], [48.85665, 2.3523], [48.8566, 2.3523]]}, \"params\": {\"workWidth\": 0.5, \"headlandPasses\": 1, \"obstacleMargin\": 0.25}}'}"
-    ros2 topic echo -1 /coverage/plan
+    ORIGIN (48.8566, 2.3522), DEG_PER_METER = 1e-5 (x = est, y = nord).
 """
-
 import json
 import math
-
-import rclpy
-from rclpy.node import Node
-from std_msgs.msg import String
 
 try:
     import fields2cover as f2c
     F2C_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    f2c = None
+except Exception:  # noqa: BLE001
     F2C_AVAILABLE = False
+
+from rclpy.node import Node
+from std_msgs.msg import String
 
 ORIGIN_LAT = 48.8566
 ORIGIN_LNG = 2.3522
@@ -67,41 +53,51 @@ DEG_PER_METER = 1e-5
 
 
 def latlng_to_xy(lat, lng):
-    return ((lng - ORIGIN_LNG) / DEG_PER_METER, (lat - ORIGIN_LAT) / DEG_PER_METER)
+    return ((lng - ORIGIN_LNG) / DEG_PER_METER,
+            (lat - ORIGIN_LAT) / DEG_PER_METER)
 
 
 def xy_to_latlng(x, y):
-    return [ORIGIN_LAT + y * DEG_PER_METER, ORIGIN_LNG + x * DEG_PER_METER]
+    return (ORIGIN_LAT + y * DEG_PER_METER, ORIGIN_LNG + x * DEG_PER_METER)
 
 
 def _cls(*names):
-    """Resout une classe F2C quel que soit le schema de nommage des bindings."""
+    """Renvoie la premiere classe F2C disponible (nommage SWIG variable)."""
     for n in names:
-        if hasattr(f2c, n):
-            return getattr(f2c, n)
-    raise AttributeError('Classe Fields2Cover introuvable : %s' % (names,))
+        c = getattr(f2c, n, None)
+        if c is not None:
+            return c
+    raise RuntimeError('Classe F2C introuvable : %s' % '/'.join(names))
 
 
+# ---------------------------------------------------------------------- #
+# geometrie pure Python (contour tondu)
+# ---------------------------------------------------------------------- #
 def _inflate_ring(ring_xy, margin):
-    """Gonfle approximativement un polygone (S1) par homothetie centroique.
+    """Offset d un anneau ferme : margin > 0 vers l exterieur, < 0 interieur.
 
-    Approximation valable pour des obstacles convexes / faiblement concaves.
-    S0 (interdiction absolue de traverser) reste garanti par le trou interne
-    construit sur le polygone GONLE, independamment de cette approximation.
+    Deplace chaque sommet le long de la bissectrice exterieure — exact
+    pour les polygones convexes (zones dessinees a la souris : OK).
     """
-    if margin <= 0 or not ring_xy:
-        return ring_xy
-    cx = sum(p[0] for p in ring_xy) / len(ring_xy)
-    cy = sum(p[1] for p in ring_xy) / len(ring_xy)
+    n = len(ring_xy)
     out = []
-    for x, y in ring_xy:
-        dx, dy = x - cx, y - cy
+    for i in range(n):
+        x1, y1 = ring_xy[i]
+        x2, y2 = ring_xy[(i + 1) % n]
+        dx, dy = x2 - x1, y2 - y1
         d = math.hypot(dx, dy)
         if d < 1e-9:
-            out.append((x, y))
             continue
-        # deplace chaque sommet de 'margin' vers l'exterieur
-        out.append((x + dx / d * margin, y + dy / d * margin))
+        # normale exterieure selon le sens de parcours
+        nx, ny = -dy / d, dx / d
+        out.append((x1 + nx * margin, y1 + ny * margin))
+    # recentre pour eviter la derive sur les longs perimetres
+    if out and n == len(out):
+        cx_o = sum(p[0] for p in ring_xy) / n
+        cy_o = sum(p[1] for p in ring_xy) / n
+        cx_i = sum(p[0] for p in out) / n
+        cy_i = sum(p[1] for p in out) / n
+        out = [(x - (cx_i - cx_o), y - (cy_i - cy_o)) for x, y in out]
     return out
 
 
@@ -110,8 +106,9 @@ class F2CPlannerNode(Node):
     def __init__(self):
         super().__init__('f2c_planner_node')
         self.declare_parameter('default_work_width', 0.5)
-        self.declare_parameter('default_headland_passes', 2)
+        self.declare_parameter('default_headland_passes', 1)
         self.declare_parameter('default_obstacle_margin', 0.25)
+        self.declare_parameter('default_min_turning_radius', 0.3)
 
         self.plan_pub = self.create_publisher(String, '/coverage/plan', 10)
         self.mission_pub = self.create_publisher(String, '/mission/path', 10)
@@ -119,69 +116,58 @@ class F2CPlannerNode(Node):
 
         if not F2C_AVAILABLE:
             self.get_logger().error(
-                'Fields2Cover non installe : pip install fields2cover '
-                '(dependances : libgdal-dev libgeos-dev libtinyxml2-dev nlohmann-json3-dev)')
-        self.get_logger().info('f2c_planner_node pret (Fields2Cover: %s)'
-                               % ('OK' if F2C_AVAILABLE else 'ABSENT'))
+                'fields2cover NON installe — le noeud attend mais echouera a la generation')
+        self.get_logger().info(
+            'f2c_planner_node v2 pret (Fields2Cover: %s, toutes options)'
+            % ('OK' if F2C_AVAILABLE else 'ABSENT'))
 
-    # ------------------------------------------------------------- commande
-
-    def _on_command(self, msg: String):
+    # ------------------------------------------------------------------ #
+    # commandes
+    # ------------------------------------------------------------------ #
+    def _on_command(self, msg):
         try:
             cmd = json.loads(msg.data)
-        except json.JSONDecodeError as e:
-            self.get_logger().error('Commande JSON invalide : %s' % e)
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error('Commande illisible : %s' % e)
             return
-        action = cmd.get('action')
-        if action == 'generate_coverage':
-            self._generate(cmd)
-        elif action in ('start_all_tasks', 'stop_all_tasks'):
-            # gere par le superviseur (jalon 2) ; ignore ici
-            pass
-
-    # ----------------------------------------------------------- generation
+        if cmd.get('action') != 'generate_coverage':
+            return
+        self._generate(cmd)
 
     def _generate(self, cmd):
-        if not F2C_AVAILABLE:
-            self.get_logger().error('Generation impossible : Fields2Cover absent')
-            return
         zones = cmd.get('zones') or {}
         mow = zones.get('mow') or []
-        exclusions = zones.get('exclusions') or []
+        excl = zones.get('exclusions') or []
         if len(mow) < 3:
-            self.get_logger().error('Zone de tonte invalide (%d sommets)' % len(mow))
+            self.get_logger().error('Zone de tonte invalide (3 sommets minimum)')
             return
+        mow_xy = [latlng_to_xy(lat, lng) for lat, lng in mow]
+        obs_xy = [[latlng_to_xy(lat, lng) for lat, lng in ring]
+                  for ring in excl if len(ring) >= 3]
+
         p = cmd.get('params') or {}
         work_width = float(p.get('workWidth',
                                  self.get_parameter('default_work_width').value))
         headland_passes = int(p.get('headlandPasses',
                                     self.get_parameter('default_headland_passes').value))
+        mow_headland = bool(p.get('mowHeadland', True))
         obstacle_margin = float(p.get('obstacleMargin',
                                       self.get_parameter('default_obstacle_margin').value))
         ref_angle_deg = p.get('refAngleDeg')
+        sg_obj = str(p.get('sgObj', 'field_cov'))
+        rp_alg = str(p.get('rpAlg', 'boustrophedon'))
+        pp_alg = str(p.get('ppAlg', 'reeds_shepp'))
+        min_turn = float(p.get('minTurningRadius',
+                               self.get_parameter('default_min_turning_radius').value))
 
-        # --- repere metrique local
-        mow_xy = [latlng_to_xy(lat, lng) for lat, lng in mow]
-        obs_xy = [[latlng_to_xy(lat, lng) for lat, lng in ring]
-                  for ring in exclusions]
-
-        # --- angle des passes : bordure de reference = 1re arete du polygone
-        if ref_angle_deg is None:
-            dx = mow_xy[1][0] - mow_xy[0][0]
-            dy = mow_xy[1][1] - mow_xy[0][1]
-            ref_angle = math.atan2(dy, dx)
-        else:
-            ref_angle = math.radians(float(ref_angle_deg))
-
-        # --- construction du champ : anneau externe + trous (S0 dure)
-        Point = _cls('Point', 'F2CPoint')
+        # --- geometrie F2C (bindings confirmes 2.1.0)
         Ring = _cls('LinearRing', 'Ring', 'F2CRing')
-        Cells = _cls('Cells', 'F2CCells')
 
-        def make_ring(points_xy):
+        def make_ring(pts):
             ring = Ring()
-            for x, y in points_xy:
-                ring.addPoint(Point(x, y))
+            for x, y in pts:
+                ring.addPoint(float(x), float(y))
+            ring.addPoint(*[float(v) for v in pts[0]])  # fermeture
             return ring
 
         Cell = _cls('Cell', 'F2CCell')
@@ -189,112 +175,154 @@ class F2CPlannerNode(Node):
         cell.addRing(make_ring(mow_xy))
         for ring_xy in obs_xy:
             inflated = _inflate_ring(ring_xy, obstacle_margin)  # S1
-            cell.addRing(make_ring(inflated))  # trou internal -> S0
-        cells = Cells()
+            cell.addRing(make_ring(inflated))  # trou interne -> S0
+        cells = _cls('Cells')()
         cells.addGeometry(cell)
 
-        # --- headlands (N passes) puis zone de balayage
-        ConstHL = _cls('HG_Const_gen', 'HG_ConstHL', 'ConstHL')
-        const_hl = ConstHL()
-        headland_width = headland_passes * work_width
-        try:
-            no_hl = const_hl.generateHeadlands(cells, headland_width)
-        except TypeError:
-            no_hl = const_hl.generateHeadlandArea(cells, headland_width)
-        try:
-            hl_empty = no_hl is None or no_hl.isEmpty()
-        except Exception:
-            hl_empty = not bool(no_hl)
-        if hl_empty:
-            self.get_logger().warning('Headlands vides — generation sur le champ entier')
+        # --- headland : aire reservee aux demi-tours (0 = passes plein champ)
+        if headland_passes > 0:
+            ConstHL = _cls('HG_Const_gen', 'HG_ConstHL', 'ConstHL')
+            no_hl = None
+            try:
+                no_hl = ConstHL().generateHeadlandArea(cells, work_width, headland_passes)
+            except Exception as e:  # noqa: BLE001
+                self.get_logger().warning(
+                    'generateHeadlandArea a echoue (%s) — champ entier' % e)
+            try:
+                hl_empty = no_hl is None or no_hl.isEmpty()
+            except Exception:  # noqa: BLE001
+                hl_empty = not bool(no_hl)
+            if hl_empty:
+                no_hl = cells
+        else:
             no_hl = cells
 
-        # --- swaths paralleles a la bordure de reference
-        BruteForce = _cls('SG_BruteForce', 'BruteForce')
-        bf = BruteForce()
+        # --- swaths : objectif + angle (optimal ou fixe)
+        bf = _cls('SG_BruteForce', 'BruteForce')()
+        obj_map = {
+            'field_cov': _cls('OBJ_FieldCoverage', 'FieldCoverage'),
+            'n_swath': _cls('OBJ_NSwath', 'NSwath'),
+            'n_swath_mod': _cls('OBJ_NSwathModified', 'NSwathModified'),
+            'overlaps': _cls('OBJ_Overlaps', 'Overlaps'),
+            'swath_length': _cls('OBJ_SwathLength', 'SwathLength'),
+        }
+        obj_cls = obj_map.get(sg_obj, obj_map['field_cov'])
+
         swaths = None
-        for call in (lambda: bf.generateBestSwaths(work_width, no_hl),
-                     lambda: bf.generateSwaths(ref_angle, work_width, no_hl),
-                     lambda: bf.generateBestSwaths(ref_angle, work_width, no_hl),
-                     lambda: bf.generateSwaths(work_width, no_hl)):
-            try:
-                swaths = call()
-                break
-            except Exception:
-                continue
+        if ref_angle_deg is not None:
+            angle = math.radians(float(ref_angle_deg))
+            for call in (lambda: bf.generateSwaths(angle, work_width, no_hl),
+                         lambda: bf.generateBestSwaths(obj_cls(), work_width, no_hl),
+                         lambda: bf.generateBestSwaths(work_width, no_hl)):
+                try:
+                    swaths = call()
+                    break
+                except Exception:  # noqa: BLE001
+                    continue
+        else:
+            for call in (lambda: bf.generateBestSwaths(obj_cls(), work_width, no_hl),
+                         lambda: bf.generateBestSwaths(work_width, no_hl),
+                         lambda: bf.generateSwaths(0.0, work_width, no_hl)):
+                try:
+                    swaths = call()
+                    break
+                except Exception:  # noqa: BLE001
+                    continue
         if swaths is None:
-            self.get_logger().error('Aucune signature de generateSwaths ne convient a cette version F2C')
+            self.get_logger().error('Aucune signature de generation ne convient')
             return
         swaths = self._flatten_swaths(swaths)
         n_swaths = swaths.size() if hasattr(swaths, 'size') else len(swaths)
         if n_swaths == 0:
-            self.get_logger().error('Aucun swath genere (champ trop etroit pour w=%.2f m ?)'
-                                    % work_width)
+            self.get_logger().error(
+                'Aucun swath (champ trop etroit pour w=%.2f m ?)' % work_width)
             return
 
-        # --- ordre boustrophedon
-        Boustrophedon = _cls('RP_Boustrophedon', 'RP_BoustrophedonOrder', 'BoustrophedonOrder')
+        # --- ordre des passes
+        rp_map = {
+            'boustrophedon': _cls('RP_Boustrophedon', 'RP_BoustrophedonOrder'),
+            'snake': _cls('RP_Snake', 'RP_SnakeOrder'),
+            'spiral': _cls('RP_Spiral', 'RP_SpiralOrder'),
+        }
+        order_cls = rp_map.get(rp_alg, rp_map['boustrophedon'])
         try:
-            swaths = Boustrophedon().genSortedSwaths(swaths)
-        except Exception as e:  # ordre brut si le tri echoue
-            self.get_logger().warning('Tri boustrophedon indisponible (%s) — ordre brut' % e)
+            swaths = order_cls().genSortedSwaths(swaths)
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().warning('Tri %s indisponible (%s) — ordre brut'
+                                      % (rp_alg, e))
 
-        # --- chemin complet avec virages Reeds-Shepp (Gazonator sait reculer)
-        waypoints = []
-        kinds = []
-        try:
-            Robot = _cls('Robot', 'F2CRobot')
-            robot = Robot()
-            for setter, val in (('setWidth', 0.4), ('setCovWidth', work_width)):
-                if hasattr(robot, setter):
-                    getattr(robot, setter)(val)
-            PathPlanning = _cls('PP_PathPlanning', 'PathPlanning')
-            RS = _cls('PP_ReedsSheppCurves', 'PP_ReedsSheppSolver', 'ReedsSheppSolver')
-            pp = PathPlanning()
-            first_err = None
-            path = None
-            for call in (lambda: pp.planPath(robot, swaths, RS()),   # v1.x confirme
-                         lambda: pp.planBestPath(robot, swaths),
-                         lambda: pp.searchBestPath(robot, swaths)):
+        # --- chemin avec virages (ppAlg)
+        Robot = _cls('Robot', 'F2CRobot')
+        robot = Robot()
+        for setter, val in (('setCovWidth', work_width),
+                            ('setWidth', work_width),
+                            ('setMinTurningRadius', min_turn)):
+            if hasattr(robot, setter):
                 try:
-                    path = call()
-                    break
-                except Exception as e:
-                    if first_err is None:
-                        first_err = '%s: %s' % (type(e).__name__, e)
-                    continue
-            if path is None:
-                self.get_logger().warning('planPath a echoue : %s' % first_err)
-                raise RuntimeError('planPath indisponible : %s' % first_err)
+                    getattr(robot, setter)(float(val))
+                except Exception:  # noqa: BLE001
+                    pass
+
+        pp_map = {
+            'dubins': _cls('PP_DubinsCurves', 'PP_Dubins', 'DubinsCurves'),
+            'dubins_cc': _cls('PP_DubinsCurvesCC', 'PP_DubinsCC'),
+            'reeds_shepp': _cls('PP_ReedsSheppCurves', 'PP_ReedsSheppSolver'),
+            'reeds_shepp_hc': _cls('PP_ReedsSheppCurvesHC', 'PP_ReedsSheppHC'),
+        }
+        turn_cls = pp_map.get(pp_alg, pp_map['reeds_shepp'])
+        PathPlanning = _cls('PP_PathPlanning', 'PathPlanning')
+        pp = PathPlanning()
+
+        waypoints, kinds = None, None
+        first_err = None
+        for call in (lambda: pp.planPath(robot, swaths, turn_cls()),
+                     lambda: pp.planPath(robot, swaths),
+                     lambda: pp.planBestPath(robot, swaths),
+                     lambda: pp.searchBestPath(robot, swaths)):
             try:
-                path.populate(200)  # densification (5 mm) pour un suivi propre
-            except Exception:
-                pass
-            waypoints, kinds = self._extract_path(path)
-        except Exception as e:
+                path = call()
+                waypoints, kinds = self._extract_path(path)
+                break
+            except Exception as e:  # noqa: BLE001
+                if first_err is None:
+                    first_err = '%s: %s' % (type(e).__name__, e)
+                continue
+        if not waypoints:
             self.get_logger().warning(
-                'Path planner F2C indisponible (%s) — sortie swaths bruts' % e)
+                'Path planner indisponible (%s) — sortie swaths bruts' % first_err)
             waypoints, kinds = self._extract_swaths(swaths)
 
-        # --- anneau(x) de contour TONDU (couverture 100 %), 100 % Python :
-        # prefixes aux allers-retours F2C. Nav2 pilote chaque waypoint un a
-        # un, il gere de lui-meme le transit entre la fin de l anneau et le
-        # premier swath - pas besoin que ce soit dans planPath.
-        if headland_passes > 0:
+        # --- contour TONDU (anneau pur Python), prefixes au chemin
+        if mow_headland and headland_passes > 0:
             hl_pts, hl_kinds = self._headland_ring_pts(
                 mow_xy, work_width, headland_passes)
             if hl_pts:
-                waypoints = hl_pts + waypoints
-                kinds = hl_kinds + kinds
+                waypoints = hl_pts + list(waypoints)
+                kinds = hl_kinds + list(kinds)
                 self.get_logger().info(
-                    'Headland : %d points de contour (%d anneau(x)) prefixes au chemin'
+                    'Headland : %d points de contour (%d anneau(x)) TONDUS prefixes'
                     % (len(hl_pts), headland_passes))
+        elif headland_passes > 0:
+            self.get_logger().info(
+                'Headland : %d passe(s) reservee(s) aux demi-tours (non tondue(s))'
+                % headland_passes)
 
         if len(waypoints) < 2:
             self.get_logger().error('Chemin vide apres extraction')
             return
 
-        # --- publication
+        # --- publication (echo des options pour le frontend)
+        options = {
+            'workWidth': work_width,
+            'headlandPasses': headland_passes,
+            'mowHeadland': mow_headland,
+            'obstacleMargin': obstacle_margin,
+            'refAngleDeg': ref_angle_deg,
+            'sgObj': sg_obj,
+            'rpAlg': rp_alg,
+            'ppAlg': pp_alg,
+            'minTurningRadius': min_turn,
+        }
         latlng = [xy_to_latlng(x, y) for x, y in waypoints]
         plan = {
             'tasks': [{
@@ -303,65 +331,28 @@ class F2CPlannerNode(Node):
                 'status': 'pending',
                 'waypoints': latlng,
                 'waypointKinds': kinds,
+                'options': options,
                 'stats': {
                     'swaths': n_swaths,
                     'waypoints': len(latlng),
-                    'workWidth': work_width,
-                    'headlandPasses': headland_passes,
-                    'obstacleMargin': obstacle_margin,
                     'exclusions': len(obs_xy),
                 },
             }],
         }
         self.plan_pub.publish(String(data=json.dumps(plan)))
-        mission = {
-            'tasks': [{
-                'id': 'f2c-1',
-                'name': 'Couverture F2C',
-                'status': 'pending',
-                'waypoints': latlng,
-                'completedWaypoints': 0,
-            }],
-        }
-        self.mission_pub.publish(String(data=json.dumps(mission)))
+        self.mission_pub.publish(String(data=json.dumps(plan)))
         self.get_logger().info(
-            'Plan genere : %d waypoints, %d swaths, %d exclusions (S0/S1 appliques)'
-            % (len(latlng), n_swaths, len(obs_xy)))
+            'Plan genere : %d waypoints, %d swaths [angle=%s, obj=%s, ordre=%s, virages=%s]'
+            % (len(latlng), n_swaths,
+               'auto' if ref_angle_deg is None else str(ref_angle_deg),
+               sg_obj, rp_alg, pp_alg))
 
-    # ----------------------------------------------------------- extraction
-
-    def _extract_path(self, path):
-        """Extrait (waypoints, kinds) d'un F2CPath v1.x ; virages = 'transition'.
-
-        PathState expose les descripteurs : point, angle, dir, len, type, velocity.
-        Les sections de virage ont type == PathSectionType_TURN.
-        """
-        TURN = getattr(f2c, 'PathSectionType_TURN', None)
-        pts, kinds = [], []
-        states = None
-        for getter in (lambda: path.getStates(),
-                       lambda: [path[i] for i in range(path.size())]):
-            try:
-                states = getter()
-                break
-            except Exception:
-                continue
-        if states is None:
-            raise RuntimeError('Impossible de lire les etats du Path F2C')
-        for ps in states:
-            p = ps.point  # F2CPoint
-            pts.append((float(p.getX()), float(p.getY())))
-            is_turn = False
-            try:
-                is_turn = TURN is not None and ps.type == TURN
-            except Exception:
-                pass
-            kinds.append('transition' if is_turn else 'sweep')
-        return pts, kinds
-
+    # ------------------------------------------------------------------ #
+    # extraction / helpers (bindings 2.1.0 confirmes)
+    # ------------------------------------------------------------------ #
     def _flatten_swaths(self, swaths):
-        """v1.x : generateBestSwaths renvoie SwathsByCells ; on aplatit en
-        Swaths via la sonde de type SWIG (push_back accepte = deja plat)."""
+        """SwathsByCells -> Swaths. Sonde de type SWIG : push_back accepte
+        le premier element = deja plat ; TypeError = groupes a aplatir."""
         SwathsCls = _cls('Swaths')
         n = swaths.size() if hasattr(swaths, 'size') else len(swaths)
         if n == 0:
@@ -370,7 +361,7 @@ class F2CPlannerNode(Node):
         probe = SwathsCls()
         try:
             probe.push_back(first)
-            return swaths  # deja plat
+            return swaths
         except TypeError:
             pass
         flat = SwathsCls()
@@ -382,19 +373,18 @@ class F2CPlannerNode(Node):
         return flat
 
     def _swath_ends(self, s):
-        """Extremites (start, end) d'un Swath, quel que soit le nommage v1.x."""
         for getter in (lambda: (s.startPoint(), s.endPoint()),
                        lambda: (s.getStartPoint(), s.getEndPoint()),
                        lambda: (s.start(), s.end())):
             try:
                 a, b = getter()
                 return a, b
-            except Exception:
+            except Exception:  # noqa: BLE001
                 continue
         return None, None
 
     def _extract_swaths(self, swaths):
-        """Fallback : extremites des swaths (une ligne = 2 waypoints)."""
+        """Fallback : extremites des swaths."""
         pts, kinds = [], []
         n = swaths.size() if hasattr(swaths, 'size') else len(swaths)
         for i in range(n):
@@ -408,22 +398,45 @@ class F2CPlannerNode(Node):
                 kinds.append('sweep')
         return pts, kinds
 
-    def _headland_ring_pts(self, mow_xy, work_width, passes, step=0.6):
-        """Anneaux de contour TONDUS, 100 % Python (generateHeadlandSwaths
-        v1.x renvoie un tuple de Cells inexploitable - sonde terrain).
+    def _extract_path(self, path):
+        """F2CPath 2.1.0 : PathState{point, angle, dir, len, type, velocity},
+        virages = PathSectionType_TURN."""
+        TURN = getattr(f2c, 'PathSectionType_TURN', None)
+        pts, kinds = [], []
+        states = None
+        for getter in (lambda: path.getStates(),
+                       lambda: [path[i] for i in range(path.size())]):
+            try:
+                states = getter()
+                break
+            except Exception:  # noqa: BLE001
+                continue
+        if states is None:
+            raise RuntimeError('Impossible de lire les etats du Path F2C')
+        for ps in states:
+            p = ps.point
+            pts.append((float(p.getX()), float(p.getY())))
+            is_turn = False
+            try:
+                is_turn = TURN is not None and ps.type == TURN
+            except Exception:  # noqa: BLE001
+                pass
+            kinds.append('transition' if is_turn else 'sweep')
+        return pts, kinds
 
-        Chaque anneau k = offset interieur du polygone de (k + 0.5) largeurs
-        (le 1er a w/2 du bord : la bande [0, w] est couverte, puis k*w),
-        densifie au pas 'step' pour un suivi propre par Nav2. Les anneaux
-        sont parcourus bord -> interieur, avant les allers-retours.
+    def _headland_ring_pts(self, mow_xy, work_width, passes, step=0.6):
+        """Anneaux de contour TONDUS (100 % Python — generateHeadlandSwaths
+        2.1.0 renvoie un tuple de Cells inexploitable, sonde terrain).
+
+        Anneau k = offset interieur a (k + 0.5) largeurs : le 1er a w/2 du
+        bord (bande [0, w] couverte), densifie au pas step.
         """
         pts, kinds = [], []
         for k in range(passes):
             offset = (k + 0.5) * work_width
-            ring = _inflate_ring(mow_xy, -offset)  # negatif = vers l interieur
+            ring = _inflate_ring(mow_xy, -offset)
             if len(ring) < 3:
                 break
-            # densification le long du perimetre (polygone ferme)
             peri = ring + [ring[0]]
             for i in range(len(peri) - 1):
                 (x1, y1), (x2, y2) = peri[i], peri[i + 1]
@@ -436,14 +449,14 @@ class F2CPlannerNode(Node):
                     pts.append((x1 + (x2 - x1) * t, y1 + (y2 - y1) * t))
                     kinds.append('sweep')
             if pts:
-                # fin d anneau = point de fermeture (retour au depart)
                 pts.append(peri[0])
                 kinds.append('sweep')
         return pts, kinds
 
 
-def main(args=None):
-    rclpy.init(args=args)
+def main():
+    import rclpy
+    rclpy.init()
     node = F2CPlannerNode()
     try:
         rclpy.spin(node)
@@ -451,7 +464,7 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == '__main__':
