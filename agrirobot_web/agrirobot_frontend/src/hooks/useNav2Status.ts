@@ -26,7 +26,7 @@ export interface CoveragePlan {
 
 export interface MissionState {
   task: string;
-  status: 'idle' | 'running' | 'paused' | 'aborted' | 'done';
+  status: 'idle' | 'pending' | 'running' | 'paused' | 'aborted' | 'done';
   currentWaypoint: number;
   totalWaypoints: number;
   completedWaypoints: number;
@@ -60,7 +60,8 @@ export function useNav2Status(): {
 
     // --- pose robot : /odom (nav_msgs/Odometry, metres) ---
     const odomTopic = new ROSLIB.Topic({
-      ros,
+      ro
+s,
       name: '/odom',
       messageType: 'nav_msgs/Odometry',
     });
